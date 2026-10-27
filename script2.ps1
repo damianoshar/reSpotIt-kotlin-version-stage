@@ -1,0 +1,1 @@
+C:\Users\Damianos\AppData\Local\Android\Sdk\platform-tools\adb.exe  -d install .\android\app\build\outputs\apk\release\app-release.apk
