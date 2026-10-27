@@ -1,4 +1,4 @@
-﻿name: release
+name: release
 
 on:
   workflow_dispatch:
@@ -35,15 +35,23 @@ jobs:
         run: npx cap sync android
 
       - name: Decode signing keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/app-release.keystore
+          if [ -z "$KS_BASE64" ]; then
+            echo "No release keystore secret configured; building with debug signing."
+            exit 0
+          fi
+          echo "$KS_BASE64" | base64 --decode > android/app/app-release.keystore
           cat > android/keystore.properties <<EOF
           storeFile=app-release.keystore
-          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
-          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          storePassword=$KS_STORE_PASSWORD
+          keyAlias=$KS_KEY_ALIAS
+          keyPassword=$KS_KEY_PASSWORD
           EOF
+        env:
+          KS_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Build release APK
         working-directory: android
