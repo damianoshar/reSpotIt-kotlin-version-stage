@@ -1,7 +1,7 @@
-﻿package com.spotifydashboard.app.ui
+package com.spotifydashboard.app.ui
 
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.rule.ActivityScenarioRule
 import com.spotifydashboard.app.MainActivity
 import org.junit.Assert.assertTrue
 import org.junit.Rule
