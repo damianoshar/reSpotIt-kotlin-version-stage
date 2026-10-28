@@ -53,6 +53,10 @@ jobs:
           KS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
+      - name: Make Gradle wrapper executable
+        working-directory: android
+        run: chmod +x gradlew
+
       - name: Build release APK
         working-directory: android
         run: ./gradlew --no-daemon assembleRelease
