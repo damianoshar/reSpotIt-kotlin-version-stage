@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Connected tests need INTERNET for the lenient login smoke test (DNS/TLS/AP
+     resolution) and the live OAuth flow. Android enforces DNS through netd, so
+     without this permission getaddrinfo fails with "No address associated with
+     hostname". -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

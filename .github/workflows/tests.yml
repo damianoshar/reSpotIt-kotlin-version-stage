@@ -1,0 +1,78 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  kotlin:
+    name: Kotlin unit tests and debug build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify single OAuth callback handler
+        run: |
+          MANIFEST=app/build/intermediates/merged_manifests/debug/AndroidManifest.xml
+          test -f "$MANIFEST"
+          if grep -q "RedirectUriReceiverActivity" "$MANIFEST"; then
+            echo "::error::AppAuth's RedirectUriReceiverActivity must not claim the custom OAuth scheme"
+            exit 1
+          fi
+          grep -q "com.spotifydashboard.app.MainActivity" "$MANIFEST"
+  instrumented:
+    name: Compose / Espresso instrumented UI tests
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+      - name: Run instrumented UI tests on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: cd android && ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumented-tests
+          path: app/build/reports/androidTests/
+          if-no-files-found: ignore
