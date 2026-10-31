@@ -1,0 +1,32 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+// Experimental librespot module (media playback via embedded Rust).
+// NOT included by :app yet — see audio-librespot/PROGRESS.md (milestone M4).
+// Native libraries live in src/main/jniLibs/<abi>/libspotify_librespot.so and
+// are built separately with cargo-ndk (git-ignored, see .gitignore).
+android {
+    namespace "com.spotifydashboard.librespot"
+    compileSdk 34
+
+    defaultConfig {
+        minSdkVersion 24
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.0"
+
+    androidTestImplementation "androidx.test.ext:junit:1.1.5"
+    androidTestImplementation "androidx.test:runner:1.5.2"
+}
