@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Playback needs network access: Spotify access points (audio keys/streams)
+     and accounts.spotify.com for the one-time OAuth. Library manifests merge
+     into the consuming app. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

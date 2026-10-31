@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+  <!-- Allow Capacitor local server -->
+  <domain-config cleartextTrafficPermitted="true">
+    <domain includeSubdomains="true">localhost</domain>
+  </domain-config>
+  <!-- Block all other cleartext (HTTP) traffic -->
+  <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
