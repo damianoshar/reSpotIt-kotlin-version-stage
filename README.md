@@ -154,3 +154,8 @@ Download the latest APK from the [releases page](https://github.com/damianoshar/
 3. Open the app and sign in with your Spotify account.
 4. (Optional) Configure your own Spotify credentials in Settings.
 
+
+## Player limitations
+
+- The Kotlin app uses Spotify Connect / App Remote for playback control. Audio plays on a Spotify Connect device, not in-app.
+- No in-app audio decoding; requires a Spotify Connect-capable target.
