@@ -66,16 +66,27 @@ fun AddFromSiteDialog(
     albumLabels: Map<String, String> = emptyMap(),
     onPrefetch: (List<String>) -> Unit = {},
     onDismiss: () -> Unit,
-    onAdd: (List<String>) -> Unit
+    onAdd: (List<String>) -> Unit,
+    initialUrl: String? = null
 ) {
     val context = LocalContext.current
     val prefs = remember {
         context.getSharedPreferences("add_from_site_prefs", Context.MODE_PRIVATE)
     }
     var urlText by remember {
-        mutableStateOf(prefs.getString("last_url", null) ?: "https://open.spotify.com")
+        mutableStateOf(initialUrl ?: prefs.getString("last_url", null) ?: "https://open.spotify.com")
     }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var autoTriggered by remember { mutableStateOf(false) }
+
+    LaunchedEffect(webView, initialUrl) {
+        val wv = webView
+        if (wv != null && initialUrl != null && !autoTriggered) {
+            autoTriggered = true
+            val url = if (initialUrl.startsWith("http://") || initialUrl.startsWith("https://")) initialUrl else "https://$initialUrl"
+            webView?.loadUrl(url)
+        }
+    }
     var pageError by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
     var scanProgress by remember { mutableStateOf<String?>(null) }

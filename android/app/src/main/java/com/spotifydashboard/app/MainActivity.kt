@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
     private val isCheckingAuth = mutableStateOf(true)
     private val showServerLogin = mutableStateOf(false)
     private val showCredentials = mutableStateOf(false)
+    private val sharedSiteUrl = mutableStateOf<String?>(null)
     private var lastProcessedAuthUri: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -163,6 +164,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        handleSharedIntent(intent)
+
         setContent {
             SpotifyDashboardTheme {
                 Surface(color = MaterialTheme.colorScheme.background) {
@@ -236,7 +239,8 @@ class MainActivity : ComponentActivity() {
                                 showServerLogin.value = true
                             },
                             onConfigureCredentials = { showCredentials.value = true },
-                            isAuthenticated = isAuthenticated.value
+                            isAuthenticated = isAuthenticated.value,
+                            sharedSiteUrl = sharedSiteUrl.value
                         )
                     }
                 }
@@ -249,6 +253,13 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         Log.d("MainActivity", "onNewIntent received: ${intent.data}")
         handleAuthCallbackIntent(intent)
+        handleSharedIntent(intent)
+    }
+
+    private fun handleSharedIntent(intent: Intent?) {
+        val shared = intent?.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        if (shared.isBlank()) return
+        sharedSiteUrl.value = shared.trim()
     }
 
     private fun handleAuthCallbackIntent(intent: Intent?) {

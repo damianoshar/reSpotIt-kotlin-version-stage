@@ -103,7 +103,8 @@ fun SpotifyDashboardApp(
     onLogout: () -> Unit,
     onServerLogin: () -> Unit,
     onConfigureCredentials: () -> Unit = {},
-    isAuthenticated: Boolean
+    isAuthenticated: Boolean,
+    sharedSiteUrl: String? = null
 ) {
     // Card 276: one provider at the root covers the board, dialogs and sheets.
     val syncPhotos by viewModel.syncPhotos.collectAsState()
@@ -114,7 +115,8 @@ fun SpotifyDashboardApp(
             onLogout = onLogout,
             onServerLogin = onServerLogin,
             onConfigureCredentials = onConfigureCredentials,
-            isAuthenticated = isAuthenticated
+            isAuthenticated = isAuthenticated,
+            sharedSiteUrl = sharedSiteUrl
         )
     }
 }
@@ -127,7 +129,8 @@ private fun SpotifyDashboardContent(
     onLogout: () -> Unit,
     onServerLogin: () -> Unit,
     onConfigureCredentials: () -> Unit = {},
-    isAuthenticated: Boolean
+    isAuthenticated: Boolean,
+    sharedSiteUrl: String? = null
 ) {
     if (!isAuthenticated) {
         LoginScreen(onLogin = onLogin, onConfigure = onConfigureCredentials)
@@ -142,6 +145,7 @@ private fun SpotifyDashboardContent(
     var showDuplicates by remember { mutableStateOf(false) }
     var showFollowConfirm by remember { mutableStateOf(false) }
     var showAddFromSite by remember { mutableStateOf(false) }
+    LaunchedEffect(sharedSiteUrl) { if (sharedSiteUrl != null) showAddFromSite = true }
     var showSpotifySearchPlaylist by remember { mutableStateOf(false) }
     var showArtistDiscographyPlaylist by remember { mutableStateOf(false) }
     var showRetentionDialog by remember { mutableStateOf(false) }
@@ -958,7 +962,8 @@ private fun SpotifyDashboardContent(
             albumLabels = siteAlbumLabels,
             onPrefetch = viewModel::prefetchSiteAlbums,
             onDismiss = { showAddFromSite = false },
-            onAdd = viewModel::addAlbumsFromSite
+            onAdd = viewModel::addAlbumsFromSite,
+            initialUrl = sharedSiteUrl
         )
     }
 
