@@ -23,21 +23,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install JS dependencies
-        run: npm ci
-
-      - name: Build web bundle
-        run: npm run build
-
-      - name: Sync Capacitor
-        run: npx cap sync android
-
       - name: Decode signing keystore
         run: |
           if [ -z "$KS_BASE64" ]; then
