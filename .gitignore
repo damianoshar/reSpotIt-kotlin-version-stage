@@ -34,3 +34,8 @@ npm-debug.log*
 android/keystore.properties
 android/app/app-release.keystore
 
+
+# Development documentation
+README.md
+*.md
+
