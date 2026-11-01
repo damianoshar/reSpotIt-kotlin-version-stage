@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
     private val isAuthenticated = mutableStateOf(false)
     private val isCheckingAuth = mutableStateOf(true)
     private val showServerLogin = mutableStateOf(false)
-    private val showCredentials = mutableStateOf(false)
+    private val showCredentials = mutableStateOf(!authManager.hasCredentials())
     private val sharedSiteUrl = mutableStateOf<String?>(null)
     private var lastProcessedAuthUri: String? = null
 
@@ -221,12 +221,7 @@ class MainActivity : ComponentActivity() {
                     } else if (showCredentials.value) {
                         SpotifyCredentialsScreen(
                             authManager = authManager,
-                            onBack = { showCredentials.value = false }
-                        )
-                    } else if (!isAuthenticated.value && !authManager.hasCredentials()) {
-                        SpotifyCredentialsScreen(
-                            authManager = authManager,
-                            onBack = { },
+                            onBack = { showCredentials.value = false },
                             onSaved = { showCredentials.value = false }
                         )
                     } else {
