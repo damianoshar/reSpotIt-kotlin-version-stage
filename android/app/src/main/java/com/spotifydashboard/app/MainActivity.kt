@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
     private val isAuthenticated = mutableStateOf(false)
     private val isCheckingAuth = mutableStateOf(true)
     private val showServerLogin = mutableStateOf(false)
-    private val showCredentials = mutableStateOf(!authManager.hasCredentials())
+    private val showCredentials = mutableStateOf(false)
     private val sharedSiteUrl = mutableStateOf<String?>(null)
     private var lastProcessedAuthUri: String? = null
 
@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
 
         val db = AppDatabase.getDatabase(this)
         authManager = SpotifyAuthManager(this)
+        showCredentials.value = !authManager.hasCredentials()
         dashboardRepository = DashboardRepository(this)
 
         val spotifyRepository = SpotifyRepository(this, db.albumDao(), db.playlistDao(), authManager)
