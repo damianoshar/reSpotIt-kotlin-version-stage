@@ -214,6 +214,7 @@ private fun SpotifyDashboardContent(
     val pushBusy by viewModel.pushBusy.collectAsState()
     val serverTestResult by viewModel.serverTestResult.collectAsState()
     val syncHistory by viewModel.syncHistory.collectAsState()
+    val aiAssistant by viewModel.aiAssistant.collectAsState()
     val isRemote = dataSource.mode == "remote"
 
     val autohideNav by viewModel.autohideNav.collectAsState()
@@ -531,6 +532,25 @@ private fun SpotifyDashboardContent(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Concerts calendar")
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.openAiAssistant() },
+                        enabled = isRemote,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("AI assistant")
+                    }
+                    Text(
+                        if (isRemote)
+                            "Chat with the local model through your server. Chats are saved per user."
+                        else
+                            "AI assistant needs media-server mode.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SpotifyLightGray,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedButton(
                         onClick = {
@@ -981,6 +1001,19 @@ private fun SpotifyDashboardContent(
             onDelete = viewModel::deleteConcert,
             onClear = viewModel::clearConcerts,
             onDismiss = { showConcerts = false }
+        )
+    }
+
+    if (aiAssistant.open) {
+        AiAssistantDialog(
+            state = aiAssistant,
+            onDismiss = viewModel::closeAiAssistant,
+            onRetry = viewModel::refreshAiAssistant,
+            onToggleHistory = viewModel::toggleAiHistory,
+            onNewChat = viewModel::startNewAiChat,
+            onOpenChat = viewModel::openAiChat,
+            onDeleteChat = viewModel::deleteAiChat,
+            onSend = viewModel::sendAiMessage,
         )
     }
 
@@ -1548,6 +1581,42 @@ fun LibraryTab(
                     onGridSizeChange = onGridSizeChange,
                 )
             }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("View all", style = MaterialTheme.typography.bodySmall, color = SpotifyLightGray)
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(
+                checked = viewAll,
+                onCheckedChange = { checked ->
+                    if (checked && total > 200 && !viewAll) {
+                        showViewAllConfirm = true
+                    } else {
+                        onToggleViewAll()
+                    }
+                }
+            )
+        }
+
+        if (showViewAllConfirm) {
+            AlertDialog(
+                onDismissRequest = { showViewAllConfirm = false },
+                title = { Text("View all albums?") },
+                text = { Text("Loading all $total albums at once may slow down the app. Continue?") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showViewAllConfirm = false
+                        onToggleViewAll()
+                    }) { Text("View all") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showViewAllConfirm = false }) { Text("Cancel") }
+                }
+            )
         }
 
         when (val state = syncState) {
@@ -3369,6 +3438,7 @@ fun MediaServerSection(
     val isRemote = mode == "remote"
     var urlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
     var showPushConfirm by remember { mutableStateOf(false) }
+    var showViewAllConfirm by remember { mutableStateOf(false) }
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -3388,9 +3458,6 @@ fun MediaServerSection(
                 checked = isRemote,
                 onCheckedChange = { checked ->
                     onSetMode(if (checked) "remote" else "local")
-                    // Turning the server on must not silently browse a
-                    // backend that expects a JWT. Prompt immediately.
-                    if (checked && !hasSession) onRequestServerLogin()
                 }
             )
         }
@@ -3412,20 +3479,20 @@ fun MediaServerSection(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
             )
-            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { onSetServerUrl(urlDraft.trim()) },
-                    enabled = urlDraft.trim().isNotEmpty() && !busy,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Save URL")
-                }
-                OutlinedButton(
-                    onClick = { onTestConnection(urlDraft.trim()) },
-                    enabled = urlDraft.trim().isNotEmpty() && !busy,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(if (busy) "Testing…" else "Test connection")
+            Button(
+                onClick = {
+                    onSetServerUrl(urlDraft.trim())
+                    onTestConnection(urlDraft.trim())
+                },
+                enabled = urlDraft.trim().isNotEmpty() && !busy,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen)
+            ) {
+                Text(if (busy) "Connecting..." else "Connect", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+            LaunchedEffect(testResult) {
+                if (testResult != null && testResult.startsWith("✓")) {
+                    onRequestServerLogin()
                 }
             }
             if (testResult != null) {

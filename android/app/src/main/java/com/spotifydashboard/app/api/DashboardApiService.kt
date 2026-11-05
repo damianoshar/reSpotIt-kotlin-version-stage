@@ -241,6 +241,106 @@ data class TrackUrisRequest(val uris: List<String>)
 data class RemovedTracksResponse(@SerializedName("tracks_removed") val tracks_removed: Int = 0)
 data class QueuedTracksResponse(val queued: Int = 0)
 
+// --- Local LLM (additive /api/v1/llm/*, proxied through the media server) ---
+//
+// The Open WebUI credential never reaches the phone: every call carries the
+// same user JWT as the rest of /api/v1. Chat history is stored by Open WebUI;
+// the server only remembers which chat the user is currently in.
+
+data class LLMStatusDto(
+    val configured: Boolean = false,
+    val available: Boolean = false,
+    @SerializedName("base_url") val baseUrl: String = "",
+    val model: String? = null,
+    val models: Int = 0,
+    val error: String? = null,
+    @SerializedName("mcp_configured") val mcpConfigured: Boolean = false,
+    @SerializedName("mcp_tools") val mcpTools: Int = 0,
+    /** True when the server can store chats for this user. */
+    @SerializedName("chat_history") val chatHistory: Boolean = false,
+)
+data class LLMStatusEnvelope(val data: LLMStatusDto = LLMStatusDto())
+
+data class LLMMessageDto(val role: String, val content: String)
+
+data class LLMChatRequest(
+    val messages: List<LLMMessageDto>,
+    val model: String? = null,
+    val system: String? = null,
+    val temperature: Double = 0.7,
+    @SerializedName("max_tokens") val maxTokens: Int = 1024,
+    @SerializedName("use_tools") val useTools: Boolean = true,
+    @SerializedName("chat_id") val chatId: String? = null,
+    @SerializedName("use_history") val useHistory: Boolean = false,
+    @SerializedName("history_limit") val historyLimit: Int = 20,
+    val persist: Boolean = false,
+)
+
+data class LLMToolCallDto(
+    val name: String = "",
+    val arguments: com.google.gson.JsonElement? = null,
+    val result: String = "",
+)
+data class LLMUsageDto(
+    @SerializedName("prompt_tokens") val promptTokens: Int = 0,
+    @SerializedName("completion_tokens") val completionTokens: Int = 0,
+    @SerializedName("total_tokens") val totalTokens: Int = 0,
+)
+data class LLMChatResultDto(
+    val content: String = "",
+    @SerializedName("reasoning_content") val reasoningContent: String = "",
+    @SerializedName("finish_reason") val finishReason: String? = null,
+    val model: String = "",
+    val usage: LLMUsageDto? = null,
+    @SerializedName("tool_calls") val toolCalls: List<LLMToolCallDto> = emptyList(),
+    /** The chat this turn belongs to (new or continued). */
+    @SerializedName("chat_id") val chatId: String? = null,
+    /** Whether the exchange was written to Open WebUI. */
+    val persisted: Boolean = false,
+)
+data class LLMChatEnvelope(val data: LLMChatResultDto = LLMChatResultDto())
+
+data class LLMChatSummaryDto(
+    val id: String = "",
+    val title: String? = null,
+    @SerializedName("updated_at") val updatedAt: Long? = null,
+    @SerializedName("created_at") val createdAt: Long? = null,
+    val models: List<String>? = null,
+)
+data class LLMChatListEnvelope(val data: List<LLMChatSummaryDto> = emptyList())
+
+/** Open WebUI stores message content as a string or a list of text parts. */
+data class LLMStoredMessageDto(
+    val id: String? = null,
+    val role: String? = null,
+    val content: com.google.gson.JsonElement? = null,
+    val timestamp: Long? = null,
+)
+data class LLMChatHistoryDto(
+    val messages: Map<String, LLMStoredMessageDto>? = null,
+    @SerializedName("currentId") val currentId: String? = null,
+)
+data class LLMChatBodyDto(
+    val messages: List<LLMStoredMessageDto>? = null,
+    val history: LLMChatHistoryDto? = null,
+)
+data class LLMChatRowDto(
+    val id: String = "",
+    val title: String? = null,
+    @SerializedName("updated_at") val updatedAt: Long? = null,
+    @SerializedName("created_at") val createdAt: Long? = null,
+    val models: List<String>? = null,
+    val chat: LLMChatBodyDto? = null,
+)
+data class LLMChatRowEnvelope(val data: LLMChatRowDto? = null)
+data class LLMClearChatResponse(val cleared: Boolean = false)
+data class LLMClearChatEnvelope(val data: LLMClearChatResponse = LLMClearChatResponse())
+data class LLMDeleteChatResponse(
+    val deleted: Boolean = false,
+    @SerializedName("chat_id") val chatId: String = "",
+)
+data class LLMDeleteChatEnvelope(val data: LLMDeleteChatResponse = LLMDeleteChatResponse())
+
 // --- Service ---
 
 // --- Phase 0: AI URL scan response models ---
@@ -497,4 +597,38 @@ interface DashboardApiService {
         @Header("Authorization") auth: String,
         @Body body: Map<String, Any>
     ): Response<ResolveArtistsResponse>
+
+    // --- Local LLM (Open WebUI proxy) ---
+
+    @GET("api/v1/llm/status")
+    suspend fun llmStatus(@Header("Authorization") auth: String): Response<LLMStatusEnvelope>
+
+    @POST("api/v1/llm/chat")
+    suspend fun llmChat(
+        @Header("Authorization") auth: String,
+        @Body body: LLMChatRequest
+    ): Response<LLMChatEnvelope>
+
+    @GET("api/v1/llm/chats")
+    suspend fun llmChats(@Header("Authorization") auth: String): Response<LLMChatListEnvelope>
+
+    @GET("api/v1/llm/chats/current")
+    suspend fun llmCurrentChat(@Header("Authorization") auth: String): Response<LLMChatRowEnvelope>
+
+    @GET("api/v1/llm/chats/{id}")
+    suspend fun llmChatById(
+        @Header("Authorization") auth: String,
+        @Path("id") chatId: String
+    ): Response<LLMChatRowEnvelope>
+
+    @DELETE("api/v1/llm/chats/{id}")
+    suspend fun llmDeleteChat(
+        @Header("Authorization") auth: String,
+        @Path("id") chatId: String
+    ): Response<LLMDeleteChatEnvelope>
+
+    @DELETE("api/v1/llm/chats/current")
+    suspend fun llmClearCurrentChat(
+        @Header("Authorization") auth: String
+    ): Response<LLMClearChatEnvelope>
 }

@@ -87,6 +87,6 @@ data class FilterState(
     val albumType: String = "",
     val yearFrom: Int? = null,
     val yearTo: Int? = null,
-    val sortField: String = "artist",
-    val sortOrder: String = "asc"
+    val sortField: String = "added_at",
+    val sortOrder: String = "desc"
 )

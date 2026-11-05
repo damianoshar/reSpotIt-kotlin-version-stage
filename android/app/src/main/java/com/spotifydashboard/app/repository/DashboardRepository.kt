@@ -26,8 +26,13 @@ import java.util.Locale
 /** Result of checking whether the server is reachable and the JWT is valid. */
 data class AuthProbeResult(val reachable: Boolean, val authenticated: Boolean)
 
+class DashboardApiException(
+    val status: Int,
+    val errorCode: String?,
+    message: String,
+) : Exception(message)
+
 /**
- * Media-server data source β€” the Kotlin twin of the TypeScript remote layer
  * (services/remote). Talks to any conformant /api/v1 backend (Elixir is the
  * reference; Python and .NET implement the same contract).
  *
@@ -320,6 +325,116 @@ class DashboardRepository(private val context: Context) {
         404 -> "Not found on the server."
         409 -> "Already in progress on the server."
         else -> "$fallback (HTTP $code)"
+    }
+
+    /** Parse a contract error body; falls back to the HTTP status message. */
+    private fun <T> apiError(
+        res: retrofit2.Response<T>,
+        fallback: String,
+    ): DashboardApiException {
+        var code: String? = null
+        var message: String? = null
+        try {
+            val raw = res.errorBody()?.string()
+            if (!raw.isNullOrBlank()) {
+                val error = org.json.JSONObject(raw).optJSONObject("error")
+                code = error?.optString("code")?.takeIf { it.isNotBlank() }
+                message = error?.optString("message")?.takeIf { it.isNotBlank() }
+            }
+        } catch (_: Exception) {
+            // Non-JSON error body (proxy page, HTML, …): keep the status text.
+        }
+        return DashboardApiException(
+            res.code(),
+            code,
+            message ?: errorMessage(res.code(), fallback),
+        )
+    }
+
+    /**
+     * Like [authed], but throws [DashboardApiException] instead of returning
+     * null so callers can branch on the contract error code. Also refreshes
+     * the JWT once on 401.
+     */
+    private suspend fun <T> authedOrThrow(
+        fallback: String,
+        block: suspend (DashboardApiService, String) -> retrofit2.Response<T>,
+    ): T = authedOrThrow(service(), fallback, block)
+
+    private suspend fun <T> authedOrThrow(
+        svc: DashboardApiService,
+        fallback: String,
+        block: suspend (DashboardApiService, String) -> retrofit2.Response<T>,
+    ): T {
+        var res = block(svc, authHeader())
+        if (res.code() == 401 && !refreshJwt().isNullOrEmpty()) {
+            try {
+                val refresh = svc.refresh(RefreshRequest(refreshJwt()!!))
+                val fresh = refresh.body()?.access_token
+                if (refresh.isSuccessful && !fresh.isNullOrEmpty()) {
+                    prefs.edit().putString("access_jwt", fresh).apply()
+                    res = block(svc, authHeader())
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Token refresh failed", e)
+            }
+        }
+        if (!res.isSuccessful) throw apiError(res, fallback)
+        return res.body() ?: throw DashboardApiException(
+            res.code(), null, "$fallback — empty response",
+        )
+    }
+
+    // -- Local LLM (Open WebUI proxy) ---------------------------------------
+
+    /** LLM calls get the longer-timeout service (local models can be slow). */
+    private fun llmService(): DashboardApiService =
+        DashboardApiClient.llmServiceFor(getServerUrl())
+
+    suspend fun llmStatus(): LLMStatusDto = withContext(Dispatchers.IO) {
+        authedOrThrow(llmService(), "Failed to reach the LLM service") { svc, header ->
+            svc.llmStatus(header)
+        }.data
+    }
+
+    suspend fun llmChat(request: LLMChatRequest): LLMChatResultDto =
+        withContext(Dispatchers.IO) {
+            authedOrThrow(llmService(), "The model did not answer") { svc, header ->
+                svc.llmChat(header, request)
+            }.data
+        }
+
+    suspend fun llmChats(): List<LLMChatSummaryDto> = withContext(Dispatchers.IO) {
+        authedOrThrow(llmService(), "Failed to load chat history") { svc, header ->
+            svc.llmChats(header)
+        }.data
+    }
+
+    suspend fun llmCurrentChat(): LLMChatRowDto? = withContext(Dispatchers.IO) {
+        authedOrThrow(llmService(), "Failed to load the current chat") { svc, header ->
+            svc.llmCurrentChat(header)
+        }.data
+    }
+
+    suspend fun llmChatById(chatId: String): LLMChatRowDto = withContext(Dispatchers.IO) {
+        authedOrThrow(llmService(), "Failed to open that chat") { svc, header ->
+            svc.llmChatById(header, chatId)
+        }.data ?: throw DashboardApiException(404, "llm_chat_not_found", "Chat not found.")
+    }
+
+    suspend fun llmDeleteChat(chatId: String) = withContext(Dispatchers.IO) {
+        authedOrThrow(llmService(), "Failed to delete that chat") { svc, header ->
+            svc.llmDeleteChat(header, chatId)
+        }
+        Unit
+    }
+
+    /** Forget the current-chat pointer without deleting the chat itself. */
+    suspend fun llmClearCurrentChat() = withContext(Dispatchers.IO) {
+        authedOrThrow(llmService(), "Failed to start a new chat") { svc, header ->
+            svc.llmClearCurrentChat(header)
+        }
+        Unit
     }
 
     // -- Library reads ------------------------------------------------------

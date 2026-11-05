@@ -34,7 +34,13 @@ import com.spotifydashboard.app.data.LibraryStats
 import com.spotifydashboard.app.data.PlaylistAlbumEntity
 import com.spotifydashboard.app.data.ViewMode
 import com.spotifydashboard.app.api.RemoteAlbumTrack
+import com.spotifydashboard.app.api.LLMChatRequest
+import com.spotifydashboard.app.api.LLMChatSummaryDto
+import com.spotifydashboard.app.api.LLMMessageDto
 import com.spotifydashboard.app.utils.ActiveQueuePlanner
+import com.spotifydashboard.app.utils.AiChatTurn
+import com.spotifydashboard.app.utils.isChatHistoryUnavailable
+import com.spotifydashboard.app.utils.storedChatTurns
 import com.spotifydashboard.app.utils.QueueSnapshot
 import com.spotifydashboard.app.utils.PendingQueueSwitch
 import com.spotifydashboard.app.utils.QueueMode
@@ -75,6 +81,9 @@ class MainViewModel(
 
     private val _libraryFilters = MutableStateFlow(FilterState())
     val libraryFilters: StateFlow<FilterState> = _libraryFilters.asStateFlow()
+
+    private val _libraryViewAll = MutableStateFlow(false)
+    val libraryViewAll: StateFlow<Boolean> = _libraryViewAll.asStateFlow()
 
     // Accumulated album list (mirrors TS useLibrary albums + offsetRef pattern).
     // Previously this was a Flow-of-Flow that never appended on load-more,
@@ -3014,6 +3023,11 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         _serverTestResult.value = null
     }
 
+    fun toggleLibraryViewAll() {
+        _libraryViewAll.value = !_libraryViewAll.value
+        runLibraryQuery()
+    }
+
     fun clearServerAuthError() {
         _serverAuthError.value = null
     }
@@ -3959,4 +3973,292 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
+    // -- AI assistant (local LLM through the media server) -------------------
+
+    private val _aiAssistant = MutableStateFlow(AiAssistantState())
+    val aiAssistant: StateFlow<AiAssistantState> = _aiAssistant.asStateFlow()
+
+    /** Opens the dialog and (re)loads status, recent chats and the pointer. */
+    fun openAiAssistant() {
+        _aiAssistant.update { it.copy(open = true) }
+        refreshAiAssistant()
+    }
+
+    fun closeAiAssistant() {
+        _aiAssistant.update { it.copy(open = false, historyOpen = false) }
+    }
+
+    fun toggleAiHistory() {
+        _aiAssistant.update { it.copy(historyOpen = !it.historyOpen) }
+    }
+
+    fun clearAiError() {
+        _aiAssistant.update { it.copy(error = null, notice = null) }
+    }
+
+    fun refreshAiAssistant() {
+        if (!remoteActive()) {
+            _aiAssistant.update {
+                it.copy(
+                    status = null,
+                    statusLoading = false,
+                    statusError = "Media-server mode required.",
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            _aiAssistant.update {
+                it.copy(statusLoading = true, statusError = null, historyOff = false)
+            }
+            try {
+                val status = dashboardRepository.llmStatus()
+                _aiAssistant.update { it.copy(status = status, statusLoading = false) }
+                if (!status.available || !status.chatHistory) return@launch
+
+                try {
+                    val rows = dashboardRepository.llmChats()
+                    val current = dashboardRepository.llmCurrentChat()
+                    _aiAssistant.update {
+                        it.copy(
+                            chats = rows,
+                            chatId = current?.id,
+                            chatTitle = current?.title?.trim().orEmpty(),
+                            messages = aiMessages(storedChatTurns(current)),
+                        )
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (isChatHistoryUnavailable(e)) {
+                        _aiAssistant.update { it.copy(historyOff = true) }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _aiAssistant.update {
+                    it.copy(
+                        status = null,
+                        statusLoading = false,
+                        statusError = e.message ?: "Could not reach the LLM service.",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun aiMessages(turns: List<AiChatTurn>): List<AiChatMessage> =
+        turns.map { AiChatMessage(role = it.role, content = it.content) }
+
+    /**
+     * Sends one turn. With history available the server prepends the stored
+     * conversation and persists the exchange; otherwise the whole local
+     * transcript is sent statelessly (`persist=false`, `use_history=false`).
+     * If the server refuses history mid-flight, retry once statelessly.
+     */
+    fun sendAiMessage(text: String) {
+        val prompt = text.trim()
+        if (prompt.isEmpty()) return
+        val state = _aiAssistant.value
+        if (state.busy) return
+        if (!state.available) {
+            _aiAssistant.update {
+                it.copy(error = "The local model is not available yet. Check Open WebUI and try again.")
+            }
+            return
+        }
+
+        val localHistory = (state.messages + AiChatMessage("user", prompt)).takeLast(20)
+        _aiAssistant.update {
+            it.copy(messages = localHistory, busy = true, error = null, notice = null)
+        }
+
+        viewModelScope.launch {
+            val stateless = LLMChatRequest(
+                messages = localHistory.map { LLMMessageDto(it.role, it.content) },
+                system = AI_SYSTEM_PROMPT + aiLibraryContext()?.let { "\n\nLibrary context:\n$it" }.orEmpty(),
+                temperature = 0.6,
+                maxTokens = 512,
+                useTools = true,
+                useHistory = false,
+                persist = false,
+            )
+            try {
+                val result = if (state.historyAvailable) {
+                    try {
+                        dashboardRepository.llmChat(
+                            stateless.copy(
+                                messages = listOf(LLMMessageDto("user", prompt)),
+                                chatId = state.chatId,
+                                useHistory = true,
+                                historyLimit = 20,
+                                persist = true,
+                            )
+                        )
+                    } catch (e: Exception) {
+                        if (!isChatHistoryUnavailable(e)) throw e
+                        _aiAssistant.update {
+                            it.copy(historyOff = true, chatId = null, chatTitle = "")
+                        }
+                        dashboardRepository.llmChat(stateless)
+                    }
+                } else {
+                    dashboardRepository.llmChat(stateless)
+                }
+
+                _aiAssistant.update { current ->
+                    current.copy(
+                        busy = false,
+                        messages = current.messages + AiChatMessage(
+                            role = "assistant",
+                            content = result.content,
+                            reasoning = result.reasoningContent.takeIf { it.isNotBlank() },
+                            toolCalls = result.toolCalls,
+                        ),
+                        chatId = result.chatId ?: current.chatId,
+                        chatTitle = current.chatTitle.ifBlank { prompt.take(80) },
+                        notice = if (state.historyAvailable && !result.persisted) {
+                            "The answer could not be saved to chat history."
+                        } else {
+                            current.notice
+                        },
+                    )
+                }
+                if (state.historyAvailable && result.persisted) refreshAiChats()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _aiAssistant.update {
+                    it.copy(
+                        busy = false,
+                        error = e.message ?: "The model did not answer.",
+                        messages = it.messages.dropLast(1),
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun refreshAiChats() {
+        try {
+            val rows = dashboardRepository.llmChats()
+            _aiAssistant.update { it.copy(chats = rows) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // The sidebar is optional; the thread still works.
+        }
+    }
+
+    /** Clears the local thread and forgets the server-side chat pointer. */
+    fun startNewAiChat() {
+        if (_aiAssistant.value.busy) return
+        val history = _aiAssistant.value.historyAvailable
+        _aiAssistant.update {
+            it.copy(
+                messages = emptyList(),
+                error = null,
+                notice = null,
+                chatId = null,
+                chatTitle = "",
+                historyOpen = false,
+            )
+        }
+        if (!history) return
+        viewModelScope.launch {
+            try {
+                dashboardRepository.llmClearCurrentChat()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _aiAssistant.update {
+                    it.copy(notice = "Could not start a new chat; the previous chat may resume next time.")
+                }
+            }
+        }
+    }
+
+    fun openAiChat(chatId: String) {
+        val state = _aiAssistant.value
+        if (state.busy) return
+        if (chatId == state.chatId) {
+            _aiAssistant.update { it.copy(historyOpen = false) }
+            return
+        }
+        viewModelScope.launch {
+            _aiAssistant.update {
+                it.copy(historyLoading = true, error = null, notice = null)
+            }
+            try {
+                val row = dashboardRepository.llmChatById(chatId)
+                _aiAssistant.update {
+                    it.copy(
+                        historyLoading = false,
+                        historyOpen = false,
+                        chatId = row.id,
+                        chatTitle = row.title?.trim().orEmpty(),
+                        messages = aiMessages(storedChatTurns(row)),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _aiAssistant.update {
+                    it.copy(
+                        historyLoading = false,
+                        error = e.message ?: "Could not open that chat.",
+                    )
+                }
+            }
+        }
+    }
+
+    fun deleteAiChat(row: LLMChatSummaryDto) {
+        if (_aiAssistant.value.busy) return
+        viewModelScope.launch {
+            try {
+                dashboardRepository.llmDeleteChat(row.id)
+                _aiAssistant.update { current ->
+                    val active = current.chatId == row.id
+                    current.copy(
+                        chats = current.chats.filter { it.id != row.id },
+                        chatId = if (active) null else current.chatId,
+                        chatTitle = if (active) "" else current.chatTitle,
+                        messages = if (active) emptyList() else current.messages,
+                        error = null,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _aiAssistant.update { it.copy(error = e.message ?: "Could not delete that chat.") }
+            }
+        }
+    }
+
+    /** Compact snapshot of the library for the model's system prompt. */
+    private fun aiLibraryContext(): String? {
+        val stats = _libraryStats.value ?: return null
+        val lines = mutableListOf<String>()
+        lines += "Library: ${stats.totalAlbums} albums, ${stats.totalArtists} artists, " +
+            "${stats.totalGenres} genres, release years ${stats.oldestYear}-${stats.newestYear}."
+        if (stats.topGenres.isNotEmpty()) {
+            lines += "Top genres: " + stats.topGenres.take(10)
+                .joinToString(", ") { "${it.label} (${it.count})" } + "."
+        }
+        if (stats.topArtists.isNotEmpty()) {
+            lines += "Top artists: " + stats.topArtists.take(10)
+                .joinToString(", ") { "${it.label} (${it.count})" } + "."
+        }
+        val albums = _libraryAlbumsList.value
+        if (albums.isNotEmpty()) {
+            lines += "Library sample (title — artist — year — genre):\n" + albums.take(150)
+                .joinToString("\n") { album ->
+                    "- ${album.title} — ${album.artist} (${album.year}" +
+                        (if (album.genre.isNotBlank()) ", ${album.genre}" else "") + ")"
+                }
+        }
+        return lines.joinToString("\n\n").take(12000)
+    }
 }
