@@ -298,6 +298,118 @@ class DashboardRepository(private val context: Context) {
     }
 
     /**
+     * Hand the app's own PKCE tokens to the media server so remote mode can
+     * search the catalogue, load discographies and edit the saved library
+     * through the server-side Spotify account.
+     */
+    suspend fun importSpotifyToken(
+        accessToken: String,
+        refreshToken: String,
+        expiresInSeconds: Long,
+    ) = withContext(Dispatchers.IO) {
+        authedOrThrow("Could not link Spotify to the media server") { svc, header ->
+            svc.importSpotifyToken(
+                header,
+                SpotifyTokenImportRequest(
+                    access_token = accessToken,
+                    refresh_token = refreshToken,
+                    expires_in = expiresInSeconds.coerceAtLeast(0L),
+                ),
+            )
+        }
+        Unit
+    }
+
+    // -- Spotify catalogue through the server-side account -------------------
+
+    private fun RemoteSpotifyAlbum.toCatalogAlbum(): SpotifyCatalogAlbum =
+        SpotifyCatalogAlbum(
+            id = id.trim(),
+            name = title.ifBlank { "Unknown album" },
+            artist = artist.ifBlank { "Unknown artist" },
+            year = year,
+            albumType = albumType.ifBlank { "album" },
+            albumGroup = albumGroup.ifBlank { albumType },
+            imageUrl = imageUrl,
+            totalTracks = totalTracks,
+            releaseDate = if (year > 0) year.toString() else "",
+        )
+
+    private fun RemoteSpotifyArtist.toCatalogArtist(): SpotifyCatalogArtist =
+        SpotifyCatalogArtist(
+            id = id.trim(),
+            name = name.ifBlank { "Unknown artist" },
+            imageUrl = imageUrl,
+            genres = genres,
+            followers = followers,
+        )
+
+    suspend fun searchSpotifyCatalogAlbums(
+        query: String,
+        limit: Int = 30,
+    ): List<SpotifyCatalogAlbum> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) return@withContext emptyList()
+        authedOrThrow("Could not search Spotify") { svc, header ->
+            svc.searchSpotifyCatalog(header, q, limit.coerceIn(1, 50))
+        }.albums.mapNotNull { album ->
+            album.toCatalogAlbum().takeIf { it.id.isNotEmpty() }
+        }.distinctBy { it.id }
+    }
+
+    suspend fun searchSpotifyCatalogArtists(
+        query: String,
+        limit: Int = 10,
+    ): List<SpotifyCatalogArtist> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) return@withContext emptyList()
+        authedOrThrow("Could not search Spotify artists") { svc, header ->
+            svc.searchSpotifyCatalog(header, q, limit.coerceIn(1, 50))
+        }.artists.mapNotNull { artist ->
+            artist.toCatalogArtist().takeIf { it.id.isNotEmpty() }
+        }.distinctBy { it.id }
+    }
+
+    /** Full artist discography from the server, filtered to the selected groups. */
+    suspend fun getSpotifyArtistAlbums(
+        artistId: String,
+        includeGroups: Set<String>,
+    ): List<SpotifyCatalogAlbum> = withContext(Dispatchers.IO) {
+        val id = artistId.trim()
+        if (id.isEmpty()) return@withContext emptyList()
+        val groups = includeGroups
+            .map { it.trim().lowercase() }
+            .filter { it in setOf("album", "single", "appears_on", "compilation") }
+            .distinct()
+        if (groups.isEmpty()) return@withContext emptyList()
+        authedOrThrow("Could not load the artist discography") { svc, header ->
+            svc.getArtistDiscography(header, id)
+        }.albums.mapNotNull { album ->
+            album.toCatalogAlbum().takeIf { it.id.isNotEmpty() }
+        }.filter { album ->
+            (album.albumGroup.ifBlank { album.albumType }).lowercase() in groups
+        }.distinctBy { it.id }
+    }
+
+    suspend fun saveSpotifyAlbums(albumIds: List<String>): Int =
+        withContext(Dispatchers.IO) {
+            val ids = albumIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            if (ids.isEmpty()) return@withContext 0
+            authedOrThrow("Could not add the releases to Spotify") { svc, header ->
+                svc.saveSpotifyAlbums(header, SpotifyAlbumSelection(ids))
+            }.saved
+        }
+
+    suspend fun removeSpotifyAlbums(albumIds: List<String>): Int =
+        withContext(Dispatchers.IO) {
+            val ids = albumIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            if (ids.isEmpty()) return@withContext 0
+            authedOrThrow("Could not remove the albums from Spotify") { svc, header ->
+                svc.removeSpotifyAlbums(header, SpotifyAlbumSelection(ids))
+            }.removed
+        }
+
+    /**
      * Runs [block] with the stored JWT; on 401 with a refresh token available,
      * refreshes once and retries. Returns the response body or null on
      * unsuccessful responses (callers throw with context).

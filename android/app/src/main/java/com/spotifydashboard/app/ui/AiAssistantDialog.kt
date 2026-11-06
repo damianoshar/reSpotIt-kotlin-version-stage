@@ -544,8 +544,8 @@ private fun MessageBubble(message: AiChatMessage) {
                 if (message.toolCalls.isNotEmpty()) {
                     TextButton(onClick = { showTools = !showTools }) {
                         Text(
-                            if (showTools) "Hide Spotify tools" else
-                                "Spotify tools used (${message.toolCalls.size})",
+                            if (showTools) "Hide tools" else
+                                "Tools used (${message.toolCalls.size})",
                             style = MaterialTheme.typography.labelSmall
                         )
                     }

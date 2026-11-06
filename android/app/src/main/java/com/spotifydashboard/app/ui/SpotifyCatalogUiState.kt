@@ -62,6 +62,8 @@ data class CatalogPlaylistOutcome(
 data class CatalogLibraryOutcome(
     val albumsAdded: Int = 0,
     val albumsImported: Int = 0,
+    /** Remote mode: the media server refresh is running in the background. */
+    val syncing: Boolean = false,
     val error: String? = null,
 ) {
     val isSuccess: Boolean get() = error == null

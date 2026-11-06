@@ -49,6 +49,56 @@ data class AuthStatus(
 data class SpotifyLinkStatus(val connected: Boolean = false, val display_name: String? = null)
 data class SpotifyAuthUrl(val auth_url: String = "")
 
+// --- Spotify PKCE hand-off + catalogue (server-side Spotify account) ---
+//
+// A phone on the LAN cannot finish the server's loopback OAuth callback, so the
+// app authorises with its custom scheme and POSTs the resulting tokens here.
+// The catalogue endpoints then let remote mode search, browse discographies
+// and edit the saved library through the same server-side account.
+
+data class SpotifyTokenImportRequest(
+    val access_token: String,
+    val refresh_token: String,
+    val expires_in: Long,
+)
+data class SpotifyTokenImportResponse(val connected: Boolean = false)
+
+data class RemoteSpotifyArtist(
+    val id: String = "",
+    val name: String = "",
+    @SerializedName("image_url") val imageUrl: String = "",
+    val genres: List<String> = emptyList(),
+    val followers: Long = 0L,
+)
+
+data class RemoteSpotifyAlbum(
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
+    @SerializedName("artist_ids") val artistIds: List<String> = emptyList(),
+    val year: Int = 0,
+    val genre: String = "",
+    @SerializedName("image_url") val imageUrl: String = "",
+    @SerializedName("album_type") val albumType: String = "",
+    @SerializedName("album_group") val albumGroup: String = "",
+    @SerializedName("total_tracks") val totalTracks: Int = 0,
+    @SerializedName("spotify_url") val spotifyUrl: String = "",
+)
+
+data class SpotifyCatalogResponse(
+    val artists: List<RemoteSpotifyArtist> = emptyList(),
+    val albums: List<RemoteSpotifyAlbum> = emptyList(),
+)
+
+data class SpotifyArtistAlbumsResponse(
+    @SerializedName("artist_id") val artistId: String = "",
+    val albums: List<RemoteSpotifyAlbum> = emptyList(),
+)
+
+data class SpotifyAlbumSelection(@SerializedName("album_ids") val albumIds: List<String>)
+data class SpotifySavedResponse(val saved: Int = 0)
+data class SpotifyRemovedResponse(val removed: Int = 0)
+
 // --- Library (flat contract items — the JSON twin of the CSV columns) ---
 
 data class RemoteAlbumItem(
@@ -388,6 +438,40 @@ interface DashboardApiService {
 
     @HTTP(method = "DELETE", path = "api/v1/auth/spotify", hasBody = false)
     suspend fun disconnectSpotify(@Header("Authorization") auth: String): Response<Unit>
+
+    /** Hand the app's PKCE tokens to the media server (remote-mode linking). */
+    @POST("api/v1/auth/spotify/token")
+    suspend fun importSpotifyToken(
+        @Header("Authorization") auth: String,
+        @Body body: SpotifyTokenImportRequest
+    ): Response<SpotifyTokenImportResponse>
+
+    // --- Spotify catalogue through the server-side account ---
+
+    @GET("api/v1/spotify/catalog/search")
+    suspend fun searchSpotifyCatalog(
+        @Header("Authorization") auth: String,
+        @Query("q") query: String,
+        @Query("limit") limit: Int
+    ): Response<SpotifyCatalogResponse>
+
+    @GET("api/v1/spotify/artists/{id}/albums")
+    suspend fun getArtistDiscography(
+        @Header("Authorization") auth: String,
+        @Path("id") artistId: String
+    ): Response<SpotifyArtistAlbumsResponse>
+
+    @POST("api/v1/spotify/albums/save")
+    suspend fun saveSpotifyAlbums(
+        @Header("Authorization") auth: String,
+        @Body body: SpotifyAlbumSelection
+    ): Response<SpotifySavedResponse>
+
+    @HTTP(method = "DELETE", path = "api/v1/spotify/albums", hasBody = true)
+    suspend fun removeSpotifyAlbums(
+        @Header("Authorization") auth: String,
+        @Body body: SpotifyAlbumSelection
+    ): Response<SpotifyRemovedResponse>
 
     @GET("api/v1/albums")
     suspend fun getAlbums(

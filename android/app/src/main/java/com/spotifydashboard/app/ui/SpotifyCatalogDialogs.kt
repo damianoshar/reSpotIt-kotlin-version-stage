@@ -776,7 +776,9 @@ private fun CatalogLibrarySuccessDialog(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (outcome.albumsImported < outcome.albumsAdded) {
+                    if (outcome.syncing) {
+                        "The media server library is refreshing now; the releases appear when its sync finishes."
+                    } else if (outcome.albumsImported < outcome.albumsAdded) {
                         "${outcome.albumsImported} appeared in this dashboard immediately; " +
                             "the rest will arrive with the next sync."
                     } else {

@@ -2653,17 +2653,14 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
      * board. The UI confirms first because this is irreversible.
      */
     fun removeSelectedAlbumsFromLibrary() {
-        if (remoteActive()) {
-            _actionMessage.value = "Deleting from the server library is available in local mode for now"
-            return
-        }
         val ids = _selectedAlbums.value
         if (ids.isEmpty() || _libraryDeleteBusy.value) return
         if (librarySyncJob?.isActive == true) {
             _actionMessage.value = "Stop the library sync before deleting albums"
             return
         }
-        if (!spotifyRepository.hasLibraryModifyScope()) {
+        val remote = remoteActive()
+        if (!remote && !spotifyRepository.hasLibraryModifyScope()) {
             _actionMessage.value =
                 "Spotify library access is missing. Log out and sign in again, then retry."
             return
@@ -2671,10 +2668,30 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         viewModelScope.launch(Dispatchers.IO) {
             _libraryDeleteBusy.value = true
             try {
-                val removed = spotifyRepository.removeSavedAlbumsPermanentlyByIds(ids)
-                clearSelection()
-                _actionMessage.value =
-                    "Deleted $removed album${if (removed == 1) "" else "s"} from your Spotify library"
+                if (remote) {
+                    val removed = dashboardRepository.removeSpotifyAlbums(ids.toList())
+                    // The server library is a cache of the Spotify account:
+                    // reconcile it so the deleted rows do not linger.
+                    var refreshed = false
+                    if (removed > 0) {
+                        refreshed = try {
+                            dashboardRepository.syncLibraryRemote(clean = true) { }
+                            true
+                        } catch (e: Exception) {
+                            Log.w("MainViewModel", "Server library refresh after delete failed", e)
+                            false
+                        }
+                    }
+                    clearSelection()
+                    _actionMessage.value =
+                        "Deleted $removed album${if (removed == 1) "" else "s"} from your Spotify library" +
+                            if (refreshed) "" else " · run Sync to refresh the server library"
+                } else {
+                    val removed = spotifyRepository.removeSavedAlbumsPermanentlyByIds(ids)
+                    clearSelection()
+                    _actionMessage.value =
+                        "Deleted $removed album${if (removed == 1) "" else "s"} from your Spotify library"
+                }
                 loadLibraryFilterOptions()
                 runLibraryQuery()
             } catch (e: Exception) {
@@ -3440,21 +3457,14 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             )
             return
         }
-        if (remoteActive()) {
-            _spotifySearchPlaylist.value = _spotifySearchPlaylist.value.copy(
-                query = q,
-                results = emptyList(),
-                loading = false,
-                error = "Spotify search requires local Spotify login",
-                hasSearched = false,
-            )
-            return
-        }
         spotifyAlbumSearchJob?.cancel()
         spotifyAlbumSearchJob = viewModelScope.launch {
             _spotifySearchPlaylist.value = SpotifySearchPlaylistState(query = q, loading = true)
             try {
-                val results = spotifyRepository.searchCatalogAlbums(q)
+                val results = if (remoteActive())
+                    dashboardRepository.searchSpotifyCatalogAlbums(q)
+                else
+                    spotifyRepository.searchCatalogAlbums(q)
                 _spotifySearchPlaylist.value = SpotifySearchPlaylistState(
                     query = q,
                     results = results,
@@ -3491,24 +3501,15 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             )
             return
         }
-        if (remoteActive()) {
-            _artistDiscography.value = _artistDiscography.value.copy(
-                query = q,
-                artists = emptyList(),
-                selectedArtist = null,
-                albums = emptyList(),
-                loadingArtists = false,
-                error = "Artist discography requires local Spotify login",
-                hasSearched = false,
-            )
-            return
-        }
         discographyAlbumsJob?.cancel()
         discographyArtistSearchJob?.cancel()
         discographyArtistSearchJob = viewModelScope.launch {
             _artistDiscography.value = ArtistDiscographyState(query = q, loadingArtists = true)
             try {
-                val artists = spotifyRepository.searchCatalogArtists(q)
+                val artists = if (remoteActive())
+                    dashboardRepository.searchSpotifyCatalogArtists(q)
+                else
+                    spotifyRepository.searchCatalogArtists(q)
                 _artistDiscography.value = ArtistDiscographyState(
                     query = q,
                     artists = artists,
@@ -3593,7 +3594,10 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 error = null,
             )
             try {
-                val albums = spotifyRepository.getArtistCatalogAlbums(artist.id, groups)
+                val albums = if (remoteActive())
+                    dashboardRepository.getSpotifyArtistAlbums(artist.id, groups)
+                else
+                    spotifyRepository.getArtistCatalogAlbums(artist.id, groups)
                 _artistDiscography.value = _artistDiscography.value.copy(
                     albums = albums,
                     loadingAlbums = false,
@@ -3625,9 +3629,38 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             return
         }
         if (remoteActive()) {
-            _catalogLibraryOutcome.value = CatalogLibraryOutcome(
-                error = "Adding to the Spotify library requires local Spotify login",
-            )
+            val ids = unique.map { it.id }
+            _catalogLibraryBusy.value = true
+            _catalogLibraryProgress.value = CatalogLibraryProgress(0, ids.size, "Saving to Spotify")
+            _catalogLibraryOutcome.value = null
+            _catalogPlaylistOutcome.value = null
+            catalogLibraryJob = viewModelScope.launch {
+                try {
+                    val saved = dashboardRepository.saveSpotifyAlbums(ids)
+                    _catalogLibraryOutcome.value = CatalogLibraryOutcome(
+                        albumsAdded = saved,
+                        albumsImported = 0,
+                        syncing = saved > 0,
+                    )
+                    _actionMessage.value = "Added $saved release${
+                        if (saved == 1) "" else "s"
+                    } to your Spotify library · refreshing the media server library"
+                    // The server library is a cache of the Spotify account.
+                    // A normal sync upserts the new releases so the board
+                    // shows them without a manual refresh.
+                    if (saved > 0) startLibrarySync()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Saving catalogue releases to the server Spotify library failed", e)
+                    _catalogLibraryOutcome.value = CatalogLibraryOutcome(
+                        error = e.message ?: "Could not add the releases to your library",
+                    )
+                } finally {
+                    _catalogLibraryBusy.value = false
+                    _catalogLibraryProgress.value = null
+                }
+            }
             return
         }
         if (!spotifyRepository.hasLibraryModifyScope()) {

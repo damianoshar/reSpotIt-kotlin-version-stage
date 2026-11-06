@@ -557,7 +557,7 @@ private fun SpotifyDashboardContent(
                             viewModel.resetSpotifySearchPlaylist()
                             showSpotifySearchPlaylist = true
                         },
-                        enabled = !isRemote && !catalogBusy,
+                        enabled = !catalogBusy && (!isRemote || dataSource.spotifyConnected),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -570,7 +570,7 @@ private fun SpotifyDashboardContent(
                             viewModel.resetArtistDiscography()
                             showArtistDiscographyPlaylist = true
                         },
-                        enabled = !isRemote && !catalogBusy,
+                        enabled = !catalogBusy && (!isRemote || dataSource.spotifyConnected),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.LibraryMusic, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -578,8 +578,11 @@ private fun SpotifyDashboardContent(
                         Text("Artist discography playlist")
                     }
                     Text(
-                        if (isRemote)
-                            "Spotify search and discography need local Spotify login."
+                        if (isRemote && !dataSource.spotifyConnected)
+                            "Link Spotify in Settings → Media server to search and build discographies remotely."
+                        else if (isRemote)
+                            "Uses the Spotify account linked to your media server. Search Spotify or pick " +
+                                "an artist, then add releases to that library."
                         else
                             "Search Spotify or pick an artist. Create a private playlist with dedupe, " +
                                 "or add the selected releases to your Spotify library.",
@@ -663,6 +666,8 @@ private fun SpotifyDashboardContent(
                     onServerLogin = onServerLogin,
                     onPushToServer = viewModel::pushLocalLibraryToServer,
                     onLogoutServer = onLogout,
+                    onLinkSpotify = onLogin,
+                    onUnlinkSpotify = viewModel::unlinkSpotify,
                     autohideNav = autohideNav,
                     onSetAutohideNav = viewModel::setAutohideNav,
                     autohideBoardBar = autohideBoardBar,
@@ -1180,6 +1185,8 @@ fun SettingsScreen(
     onServerLogin: () -> Unit,
     onPushToServer: () -> Unit,
     onLogoutServer: () -> Unit,
+    onLinkSpotify: () -> Unit,
+    onUnlinkSpotify: () -> Unit,
     autohideNav: Boolean,
     onSetAutohideNav: (Boolean) -> Unit,
     autohideBoardBar: Boolean,
@@ -1206,7 +1213,11 @@ fun SettingsScreen(
                     onTestConnection = onTestServerUrl,
                     onRequestServerLogin = onServerLogin,
                     onPushToServer = onPushToServer,
-                    onLogoutServer = onLogoutServer
+                    onLogoutServer = onLogoutServer,
+                    spotifyConnected = dataSource.spotifyConnected,
+                    spotifyName = dataSource.spotifyName,
+                    onLinkSpotify = onLinkSpotify,
+                    onUnlinkSpotify = onUnlinkSpotify
                 )
             }
         }
@@ -3428,12 +3439,16 @@ fun MediaServerSection(
     pushBusy: Boolean,
     testResult: String?,
     hasSession: Boolean,
+    spotifyConnected: Boolean,
+    spotifyName: String?,
     onSetMode: (String) -> Unit,
     onSetServerUrl: (String) -> Unit,
     onTestConnection: (String) -> Unit,
     onRequestServerLogin: () -> Unit,
     onPushToServer: () -> Unit,
-    onLogoutServer: () -> Unit
+    onLogoutServer: () -> Unit,
+    onLinkSpotify: () -> Unit,
+    onUnlinkSpotify: () -> Unit
 ) {
     val isRemote = mode == "remote"
     var urlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
@@ -3565,6 +3580,42 @@ fun MediaServerSection(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Sign in to media server")
                 }
+            }
+
+            // Spotify account linking for remote mode catalogue access
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("Spotify account (for search, discography & library edits)", fontWeight = FontWeight.Medium, modifier = Modifier.fillMaxWidth())
+            if (spotifyConnected) {
+                Text(
+                    text = "Linked as ${spotifyName ?: "Spotify user"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SpotifyGreen,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                )
+                OutlinedButton(
+                    onClick = onUnlinkSpotify,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                ) {
+                    Icon(Icons.Default.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Unlink Spotify from media server")
+                }
+            } else {
+                Button(
+                    onClick = onLinkSpotify,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen)
+                ) {
+                    Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Link Spotify to media server")
+                }
+                Text(
+                    "Opens Spotify in your browser; after authorising, the tokens are sent to your media server so remote search and discography work.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SpotifyLightGray,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         }
     }

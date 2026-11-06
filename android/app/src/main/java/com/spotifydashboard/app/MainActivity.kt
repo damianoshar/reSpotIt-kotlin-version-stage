@@ -3,6 +3,7 @@ package com.spotifydashboard.app
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
@@ -273,6 +274,7 @@ class MainActivity : ComponentActivity() {
                 if (token != null) {
                     isAuthenticated.value = true
                     Log.d("MainActivity", "Auth successful! Token received. Setting isAuthenticated = true")
+                    handOffSpotifyTokensToServer()
                 } else {
                     isAuthenticated.value = false
                     Log.e("MainActivity", "Auth failed: ${error?.message}")
@@ -284,10 +286,54 @@ class MainActivity : ComponentActivity() {
 
     private fun handleLogin() {
         Log.d("MainActivity", "handleLogin called - launching auth intent")
+        // In remote mode the browser flow doubles as the media-server link:
+        // the server cannot complete its own loopback OAuth from a phone, so
+        // the freshly minted PKCE tokens are handed to it after the callback.
+        if (dashboardRepository.isRemote() && dashboardRepository.hasSession()) {
+            authManager.markServerHandoffPending()
+        }
         try {
             startActivity(authManager.createAuthIntent())
         } catch (e: Exception) {
             Log.e("MainActivity", "Could not open Spotify authorization page", e)
+        }
+    }
+
+    /**
+     * Remote-mode PKCE hand-off. Runs after the on-device token exchange and
+     * only once per [handleLogin] that requested it; local logins are untouched.
+     */
+    private fun handOffSpotifyTokensToServer() {
+        if (!dashboardRepository.isRemote() || !dashboardRepository.hasSession()) return
+        if (!authManager.consumeServerHandoffPending()) return
+        val tokens = authManager.getStoredTokens() ?: run {
+            Log.w("MainActivity", "Server hand-off requested but no stored tokens exist")
+            return
+        }
+        lifecycleScope.launch {
+            try {
+                val expiresIn = ((tokens.expiresAt - System.currentTimeMillis()) / 1000L)
+                    .coerceAtLeast(60L)
+                dashboardRepository.importSpotifyToken(
+                    tokens.accessToken,
+                    tokens.refreshToken,
+                    expiresIn,
+                )
+                viewModel.refreshSpotifyLink()
+                Toast.makeText(
+                    this@MainActivity,
+                    "Spotify linked to your media server",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                Log.d("MainActivity", "Spotify tokens handed off to the media server")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Spotify token hand-off failed", e)
+                Toast.makeText(
+                    this@MainActivity,
+                    "Spotify linked on this phone, but the server link failed: ${e.message}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 

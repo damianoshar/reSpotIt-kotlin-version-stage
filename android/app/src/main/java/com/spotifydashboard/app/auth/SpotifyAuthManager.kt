@@ -25,6 +25,17 @@ class SpotifyAuthManager(private val context: Context) {
     private val KEY_CLIENT_ID = "client_id"
     private val KEY_CLIENT_SECRET = "client_secret"
 
+    // Set before launching the browser when the freshly minted tokens should
+    // also be handed to the media server. Kept in prefs so it survives process
+    // death while the browser/Custom Tab is in the foreground.
+    private val KEY_SERVER_HANDOFF_PENDING = "server_handoff_pending"
+
+    data class StoredTokens(
+        val accessToken: String,
+        val refreshToken: String,
+        val expiresAt: Long,
+    )
+
     fun getClientId(): String {
         val saved = prefs.getString(KEY_CLIENT_ID, null)?.trim()
         if (!saved.isNullOrBlank()) return saved
@@ -283,5 +294,33 @@ class SpotifyAuthManager(private val context: Context) {
     fun clearTokens() {
         prefs.edit().clear().apply()
         Log.d("SpotifyAuth", "Tokens cleared")
+    }
+
+    /** Tokens saved by the on-device PKCE flow, for a server hand-off. */
+    fun getStoredTokens(): StoredTokens? {
+        val access = prefs.getString("access_token", null)?.takeIf { it.isNotBlank() }
+            ?: return null
+        val refresh = prefs.getString("refresh_token", null)?.takeIf { it.isNotBlank() }
+            ?: return null
+        return StoredTokens(
+            accessToken = access,
+            refreshToken = refresh,
+            expiresAt = prefs.getLong("expires_at", 0L),
+        )
+    }
+
+    fun markServerHandoffPending() {
+        prefs.edit().putBoolean(KEY_SERVER_HANDOFF_PENDING, true).commit()
+    }
+
+    /**
+     * True exactly once after a hand-off login: the caller imports the tokens
+     * to the media server, then the flag is removed so ordinary local logins
+     * never POST tokens unexpectedly.
+     */
+    fun consumeServerHandoffPending(): Boolean {
+        if (!prefs.getBoolean(KEY_SERVER_HANDOFF_PENDING, false)) return false
+        prefs.edit().remove(KEY_SERVER_HANDOFF_PENDING).apply()
+        return true
     }
 }
