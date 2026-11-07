@@ -227,6 +227,33 @@ class DashboardRepository(private val context: Context) {
         Unit
     }
 
+    // --- Phase 0: AI URL scan helpers ---
+    suspend fun extractAlbums(url: String? = null, text: String? = null): ExtractAlbumsResponse? = withContext(Dispatchers.IO) {
+        val body = mutableMapOf<String, Any>()
+        if (!url.isNullOrBlank()) body["url"] = url
+        if (!text.isNullOrBlank()) body["text"] = text
+        authed { svc, header -> svc.extractAlbums(header, body) }
+    }
+
+    suspend fun resolveAlbums(items: List<Map<String, String>>): ResolveAlbumsResponse? = withContext(Dispatchers.IO) {
+        authed { svc, header -> svc.resolveAlbums(header, mapOf("items" to items)) }
+    }
+
+    suspend fun extractConcerts(url: String? = null, text: String? = null): ExtractConcertsResponse? = withContext(Dispatchers.IO) {
+        val body = mutableMapOf<String, Any>()
+        if (!url.isNullOrBlank()) body["url"] = url
+        if (!text.isNullOrBlank()) body["text"] = text
+        authed { svc, header -> svc.extractConcerts(header, body) }
+    }
+
+    suspend fun resolveArtists(names: List<String>): ResolveArtistsResponse? = withContext(Dispatchers.IO) {
+        authed { svc, header -> svc.resolveArtists(header, mapOf("names" to names)) }
+    }
+
+    suspend fun getFollowedArtists(): List<FollowedArtistDto>? = withContext(Dispatchers.IO) {
+        authed { svc, header -> svc.getFollowedArtists(header) }?.artists
+    }
+
     /**
      * Runs [block] with the stored JWT; on 401 with a refresh token available,
      * refreshes once and retries. Returns the response body or null on

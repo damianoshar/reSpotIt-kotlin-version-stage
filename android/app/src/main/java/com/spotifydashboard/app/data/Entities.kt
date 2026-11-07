@@ -19,6 +19,20 @@ data class AlbumEntity(
     val addedAt: String
 )
 
+@Entity(tableName = "concerts")
+data class ConcertEntity(
+    @PrimaryKey val id: String,
+    val artist: String,
+    val artistId: String = "",
+    val title: String = "",
+    val date: String = "",
+    val venue: String = "",
+    val url: String = "",
+    val sourceUrl: String = "",
+    val followed: Boolean = false,
+    val createdAt: String = ""
+)
+
 @Entity(tableName = "playlists")
 data class PlaylistEntity(
     @PrimaryKey val id: String,

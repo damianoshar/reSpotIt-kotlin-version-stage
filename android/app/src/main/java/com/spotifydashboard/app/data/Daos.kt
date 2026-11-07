@@ -459,3 +459,25 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlist_albums WHERE playlistId = :playlistId ORDER BY LOWER(title)")
     suspend fun getPlaylistAlbumsList(playlistId: String): List<PlaylistAlbumEntity>
 }
+
+
+@Dao
+interface ConcertDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertConcert(concert: ConcertEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertConcerts(concerts: List<ConcertEntity>)
+
+    @Query("SELECT * FROM concerts ORDER BY date ASC, artist ASC")
+    fun getAllConcerts(): Flow<List<ConcertEntity>>
+
+    @Query("SELECT * FROM concerts ORDER BY date ASC, artist ASC")
+    suspend fun getAllConcertsList(): List<ConcertEntity>
+
+    @Query("DELETE FROM concerts WHERE id = :id")
+    suspend fun deleteConcert(id: String)
+
+    @Query("DELETE FROM concerts")
+    suspend fun clearConcerts()
+}

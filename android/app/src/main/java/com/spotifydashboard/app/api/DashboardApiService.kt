@@ -243,6 +243,24 @@ data class QueuedTracksResponse(val queued: Int = 0)
 
 // --- Service ---
 
+// --- Phase 0: AI URL scan response models ---
+data class ExtractedAlbumDto(val artist: String = "", val album: String = "")
+data class ExtractAlbumsResponse(val data: ExtractAlbumsData? = null)
+data class ExtractAlbumsData(val albums: List<ExtractedAlbumDto> = emptyList())
+
+data class ExtractedConcertDto(val artist: String = "", val date: String = "", val venue: String = "", val url: String = "")
+data class ExtractConcertsResponse(val data: ExtractConcertsData? = null)
+data class ExtractConcertsData(val concerts: List<ExtractedConcertDto> = emptyList())
+
+data class FollowedArtistDto(val id: String = "", val name: String = "", val image_url: String = "", val genres: List<String> = emptyList())
+data class FollowedArtistsResponse(val artists: List<FollowedArtistDto> = emptyList())
+
+data class ResolvedAlbumDto(val artist: String = "", val album: String = "", val spotify_id: String? = null, val title: String = "", val artist_name: String = "", val year: Int = 0, val image_url: String = "", val spotify_url: String = "")
+data class ResolveAlbumsResponse(val resolved: List<ResolvedAlbumDto> = emptyList(), val unresolved: List<Map<String, String>> = emptyList())
+
+data class ResolvedArtistDto(val name: String = "", val spotify_id: String = "", val matched_name: String = "", val image_url: String = "", val genres: List<String> = emptyList(), val followed: Boolean = false)
+data class ResolveArtistsResponse(val resolved: List<ResolvedArtistDto> = emptyList(), val unresolved: List<String> = emptyList())
+
 interface DashboardApiService {
     @GET("api/v1/health")
     suspend fun health(): Response<HealthResponse>
@@ -449,4 +467,34 @@ interface DashboardApiService {
         @Path("id") playlistId: String,
         @Body body: Map<String, Any>,
     ): Response<Unit>
+
+    // --- Phase 0: AI URL scan helpers ---
+    @POST("api/v1/llm/extract-albums")
+    suspend fun extractAlbums(
+        @Header("Authorization") auth: String,
+        @Body body: Map<String, Any>
+    ): Response<ExtractAlbumsResponse>
+
+    @POST("api/v1/llm/extract-concerts")
+    suspend fun extractConcerts(
+        @Header("Authorization") auth: String,
+        @Body body: Map<String, Any>
+    ): Response<ExtractConcertsResponse>
+
+    @GET("api/v1/spotify/followed-artists")
+    suspend fun getFollowedArtists(
+        @Header("Authorization") auth: String
+    ): Response<FollowedArtistsResponse>
+
+    @POST("api/v1/spotify/resolve-albums")
+    suspend fun resolveAlbums(
+        @Header("Authorization") auth: String,
+        @Body body: Map<String, Any>
+    ): Response<ResolveAlbumsResponse>
+
+    @POST("api/v1/spotify/resolve-artists")
+    suspend fun resolveArtists(
+        @Header("Authorization") auth: String,
+        @Body body: Map<String, Any>
+    ): Response<ResolveArtistsResponse>
 }
