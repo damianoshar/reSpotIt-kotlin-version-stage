@@ -49,6 +49,7 @@ class DashboardRepository(private val context: Context) {
         get() = context.getSharedPreferences("dashboard_remote_prefs", Context.MODE_PRIVATE)
 
     private val concertDao by lazy { AppDatabase.getDatabase(context).concertDao() }
+    private val albumDao by lazy { AppDatabase.getDatabase(context).albumDao() }
 
     // -- Settings -----------------------------------------------------------
 
@@ -280,6 +281,15 @@ class DashboardRepository(private val context: Context) {
 
     suspend fun clearConcerts() = withContext(Dispatchers.IO) {
         concertDao.clearConcerts()
+    }
+
+    // --- Local album helpers for pull ---
+    suspend fun upsertAlbums(albums: List<AlbumEntity>) = withContext(Dispatchers.IO) {
+        albumDao.upsertAlbums(albums)
+    }
+
+    suspend fun clearLocalLibrary() = withContext(Dispatchers.IO) {
+        albumDao.clearLibrary()
     }
 
     /**

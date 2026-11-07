@@ -1,4 +1,4 @@
-package com.spotifydashboard.app.ui
+﻿package com.spotifydashboard.app.ui
 
 import android.os.Build
 import androidx.annotation.RequiresApi
@@ -69,7 +69,7 @@ class MainViewModel(
 
     // Server-side sync history for the sync sheet: null = not loaded yet (a
     // freshly opened sheet shows Loading), [] = loaded and empty. Remote mode
-    // only — the local path syncs on-device and has no server runs to list.
+    // only β€” the local path syncs on-device and has no server runs to list.
     private val _syncHistory = MutableStateFlow<List<JobDto>?>(null)
     val syncHistory: StateFlow<List<JobDto>?> = _syncHistory.asStateFlow()
 
@@ -88,6 +88,8 @@ class MainViewModel(
     private val _libraryHasMore = MutableStateFlow(false)
     val libraryHasMore: StateFlow<Boolean> = _libraryHasMore.asStateFlow()
 
+    private val _libraryViewAll = MutableStateFlow(false)
+    val libraryViewAll: StateFlow<Boolean> = _libraryViewAll.asStateFlow()
     private val _libraryLoading = MutableStateFlow(true)
     val libraryLoading: StateFlow<Boolean> = _libraryLoading.asStateFlow()
 
@@ -690,7 +692,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     private val PAGE_SIZE = 48
 
     // Active sync jobs + their cancel signals (real cancellation, mirrors TS
-    // CancellationToken — the Stop button stops the sync, keeping partial data)
+    // CancellationToken β€” the Stop button stops the sync, keeping partial data)
     private var librarySyncJob: Job? = null
     private var librarySyncSignal: SyncCancelSignal? = null
     private var playlistSyncJob: Job? = null
@@ -723,7 +725,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             }
         }
         // Debounced re-query on filter edits (mirrors TS useDebounce 250ms).
-        // drop(1) skips the initial value — init() already ran the first query.
+        // drop(1) skips the initial value β€” init() already ran the first query.
         viewModelScope.launch {
             _libraryFilters.drop(1).debounce(250).distinctUntilChanged().collect {
                 runLibraryQuery()
@@ -769,17 +771,17 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
 
                 if (remoteActive()) {
                     val (albums, total) = dashboardRepository.queryAlbumsAsync(
-                        f, PAGE_SIZE, 0
+                        f, if (_libraryViewAll.value) 100000 else PAGE_SIZE, 0
                     )
                     _libraryAlbumsList.value = albums
                     _libraryTotal.value = total
-                    _libraryHasMore.value = albums.size < total
+                    _libraryHasMore.value = !_libraryViewAll.value && albums.size < total
                     libraryOffset = albums.size
                     Log.d("MainViewModel", "Remote query complete. Showing ${albums.size}/$total")
                 } else {
                     val first = spotifyRepository.getAlbumsFlow(
                         f.search, f.genre, f.artist, f.albumType, f.yearFrom, f.yearTo,
-                        f.sortField, f.sortOrder, PAGE_SIZE, 0
+                        f.sortField, f.sortOrder, if (_libraryViewAll.value) 100000 else PAGE_SIZE, 0
                     ).first()
 
                     _libraryAlbumsList.value = first
@@ -789,7 +791,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     )
 
                     _libraryTotal.value = count
-                    _libraryHasMore.value = first.size < count
+                    _libraryHasMore.value = !_libraryViewAll.value && first.size < count
                     libraryOffset = first.size
                     Log.d("MainViewModel", "Query complete. Showing ${first.size}/$count")
                 }
@@ -802,6 +804,11 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 _libraryLoading.value = false
             }
         }
+    }
+
+    fun toggleLibraryViewAll() {
+        _libraryViewAll.value = !_libraryViewAll.value
+        runLibraryQuery()
     }
 
     fun loadLibraryMore() {
@@ -856,14 +863,14 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
 
     fun startLibrarySync(clean: Boolean = false, includeTracks: Boolean = false) {
         if (librarySyncJob?.isActive == true) {
-            Log.d("MainViewModel", "Library sync already running — ignoring")
+            Log.d("MainViewModel", "Library sync already running β€” ignoring")
             return
         }
         val signal = SyncCancelSignal()
         librarySyncSignal = signal
         librarySyncJob = viewModelScope.launch {
             try {
-                // Remote: start a server job and poll it — same SyncState UI.
+                // Remote: start a server job and poll it β€” same SyncState UI.
                 if (remoteActive()) {
                     try {
                         dashboardRepository.syncLibraryRemote(signal, clean, includeTracks) { state ->
@@ -882,7 +889,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                         _librarySyncState.value = SyncState.Error(e.message ?: "Unknown error")
                     }
                     // The server records every run that started, finished or
-                    // failed, so refresh even on failure — a dead run belongs
+                    // failed, so refresh even on failure β€” a dead run belongs
                     // in the history too.
                     loadSyncHistory()
                     return@launch
@@ -895,7 +902,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                         loadLibraryFilterOptions()
                         runLibraryQuery()
                         if (state is SyncState.Completed) {
-                            // onProgress is not a suspend lambda — fan out for auto-backup
+                            // onProgress is not a suspend lambda β€” fan out for auto-backup
                             val didImport = state.result.imported > 0 || clean
                             viewModelScope.launch { maybeAutoBackup(didImport) }
                         }
@@ -931,7 +938,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
 
     /**
      * Loads the server's recent runs for the sync sheet (up to 3 finished
-     * library syncs). Silent on failure — history is a nicety, never a reason
+     * library syncs). Silent on failure β€” history is a nicety, never a reason
      * to block the sync UI.
      */
     fun loadSyncHistory() {
@@ -998,7 +1005,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     Log.d("MainViewModel", "Loading server-cached albums for ${playlist.id}")
                     runPlaylistQuery()
                 } else {
-                    Log.d("MainViewModel", "No server cache for ${playlist.id} — triggering sync")
+                    Log.d("MainViewModel", "No server cache for ${playlist.id} β€” triggering sync")
                     syncPlaylist(playlist.id)
                 }
                 return@launch
@@ -1012,13 +1019,13 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 Log.d("MainViewModel", "Loading $cached cached albums for ${playlist.id}")
                 runPlaylistQuery()
             } else {
-                Log.d("MainViewModel", "No cached albums for ${playlist.id} — triggering sync")
+                Log.d("MainViewModel", "No cached albums for ${playlist.id} β€” triggering sync")
                 syncPlaylist(playlist.id)
             }
         }
     }
 
-    /** Core playlist query — resets the album list (mirrors runLibraryQuery). */
+    /** Core playlist query β€” resets the album list (mirrors runLibraryQuery). */
     fun runPlaylistQuery() {
         val playlistId = _selectedPlaylist.value?.id ?: return
         viewModelScope.launch {
@@ -1117,7 +1124,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     @RequiresApi(Build.VERSION_CODES.O)
     fun syncPlaylist(playlistId: String) {
         if (playlistSyncJob?.isActive == true) {
-            Log.d("MainViewModel", "Playlist sync already running — ignoring")
+            Log.d("MainViewModel", "Playlist sync already running β€” ignoring")
             return
         }
         val signal = SyncCancelSignal()
@@ -1164,7 +1171,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
-    /** Real cancel for the playlist sync — partial data kept. */
+    /** Real cancel for the playlist sync β€” partial data kept. */
     fun cancelPlaylistSync() {
         val signal = playlistSyncSignal
         if (signal != null && playlistSyncJob?.isActive == true) {
@@ -1182,7 +1189,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
-    // ── Album track sheet ───────────────────────────────────────────────────
+    // β”€β”€ Album track sheet β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€
 
     fun openAlbumSheet(
         albumId: String,
@@ -1409,7 +1416,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             state.queue.map { it.uri },
         )
         if (uris.isEmpty()) {
-            _actionMessage.value = "Nothing to save — the current item and queue are empty or local files."
+            _actionMessage.value = "Nothing to save β€” the current item and queue are empty or local files."
             return
         }
         val skipped = rawUris.count { it.isNotBlank() } - uris.size
@@ -1438,7 +1445,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     }.onFailure { Log.w("MainViewModel", "Playlist refresh failed", it) }
                 }
                 val skippedText = if (skipped > 0) " (skipped $skipped unsupported item(s))" else ""
-                val retentionText = if (retentionUntil != null) " — deletes automatically" else ""
+                val retentionText = if (retentionUntil != null) " β€” deletes automatically" else ""
                 _actionMessage.value =
                     "Saved ${uris.size} item(s) to \"$playlistName\"$skippedText$retentionText"
             } catch (e: Exception) {
@@ -1600,7 +1607,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     ""
                 }
                 _localQueueStatus.value =
-                    "Local queue: ${updated.size} tracks · ${toAdd.size} merged from Spotify" +
+                    "Local queue: ${updated.size} tracks Β· ${toAdd.size} merged from Spotify" +
                         queueCapNote
                 val playback = runCatching {
                     val device = pickPlaybackDevice(spotifyRepository.getDevices())
@@ -1656,9 +1663,9 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 localCursorUri = null
                 playlistRepository.setLocalQueueCursor(created.id, 0, null)
                 _localQueueStatus.value = if (previous != null) {
-                    "Local queue: \"$playlistName\" (0 tracks) · empty, previous queue kept"
+                    "Local queue: \"$playlistName\" (0 tracks) Β· empty, previous queue kept"
                 } else {
-                    "Local queue: \"$playlistName\" (0 tracks) · empty"
+                    "Local queue: \"$playlistName\" (0 tracks) Β· empty"
                 }
                 _actionMessage.value = if (previous != null) {
                     "Created an empty local queue \"$playlistName\". " +
@@ -1761,9 +1768,9 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 playlistRepository.setLastQueuePlaylist(active.playlistId, active.name, updated)
                 _activeQueuePlaylist.value = QueuePlaylistRef(active.playlistId, active.name, updated)
                 _activeQueueStatus.value = if (ownContext) {
-                    "Queue playlist: ${updated.size} tracks · ${toAppend.size} just added"
+                    "Queue playlist: ${updated.size} tracks Β· ${toAppend.size} just added"
                 } else {
-                    "Queue playlist: ${updated.size} tracks · not the current playback context"
+                    "Queue playlist: ${updated.size} tracks Β· not the current playback context"
                 }
                 _actionMessage.value =
                     "Added ${toAppend.size} track(s) to the end of \"${active.name}\" " +
@@ -1910,15 +1917,15 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 _localQueuePlaylist.value = QueuePlaylistRef(active.playlistId, active.name, updated)
                 _localQueueStatus.value = when {
                     insertNext && activeUris.isEmpty() ->
-                        "Local queue: ${updated.size} tracks · ${toAdd.size} added"
+                        "Local queue: ${updated.size} tracks Β· ${toAdd.size} added"
                     insertNext && ownContext ->
-                        "Local queue: ${updated.size} tracks · ${toAdd.size} queued next"
+                        "Local queue: ${updated.size} tracks Β· ${toAdd.size} queued next"
                     insertNext ->
-                        "Local queue: ${updated.size} tracks · ${toAdd.size} queued after the saved position"
+                        "Local queue: ${updated.size} tracks Β· ${toAdd.size} queued after the saved position"
                     ownContext ->
-                        "Local queue: ${updated.size} tracks · ${toAdd.size} just added"
+                        "Local queue: ${updated.size} tracks Β· ${toAdd.size} just added"
                     else ->
-                        "Local queue: ${updated.size} tracks · not the current playback context"
+                        "Local queue: ${updated.size} tracks Β· not the current playback context"
                 }
                 _actionMessage.value = if (insertNext) {
                     "Queued ${toAdd.size} track(s) next in \"${active.name}\"."
@@ -2111,7 +2118,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         val ownContext = current?.context?.uri == "spotify:playlist:${active.playlistId}"
         if (!ownContext) {
             _localQueueStatus.value =
-                "Local queue: \"${active.name}\" (${active.uris.size} tracks) · not the current context"
+                "Local queue: \"${active.name}\" (${active.uris.size} tracks) Β· not the current context"
             return
         }
         val index = resolveLocalQueueIndex(active, current?.item?.uri)
@@ -2120,10 +2127,10 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             val remaining = (total - index - 1).coerceAtLeast(0)
             val trackName = current?.item?.name.orEmpty()
             _localQueueStatus.value =
-                "Local queue: ${index + 1}/$total · $trackName · $remaining left"
+                "Local queue: ${index + 1}/$total Β· $trackName Β· $remaining left"
         } else {
             _localQueueStatus.value =
-                "Local queue: \"${active.name}\" (${active.uris.size} tracks) · " +
+                "Local queue: \"${active.name}\" (${active.uris.size} tracks) Β· " +
                     "current track not in the playlist"
         }
     }
@@ -2365,7 +2372,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         val ownContext = current?.context?.uri == "spotify:playlist:${active.playlistId}"
         if (!ownContext) {
             _activeQueueStatus.value =
-                "Queue playlist ready: \"${active.name}\" (${active.uris.size} tracks) · " +
+                "Queue playlist ready: \"${active.name}\" (${active.uris.size} tracks) Β· " +
                     "not the current context"
             return
         }
@@ -2379,7 +2386,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         val tail = active.uris.drop(index + 1)
         val extras = ActiveQueuePlanner.extraUpcoming(queue.map { it.uri }, tail)
         val extraText = if (extras.isNotEmpty()) {
-            " · ${extras.size} manual Spotify queue item(s) waiting"
+            " Β· ${extras.size} manual Spotify queue item(s) waiting"
         } else {
             ""
         }
@@ -2605,7 +2612,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         playbackJob = null
     }
 
-    // ── Bulk removal from the open playlist ────────────────────────────────
+    // β”€β”€ Bulk removal from the open playlist β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€
 
     fun removeSelectedAlbumsFromPlaylist() {
         val playlist = _selectedPlaylist.value ?: return
@@ -2673,7 +2680,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
-    // ── Shortlived playlists ────────────────────────────────────────────────
+    // β”€β”€ Shortlived playlists β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€β”€
 
     /** `expiresAt` is an ISO-8601 UTC string, or null to keep forever. */
     fun setPlaylistRetention(expiresAt: String?) {
@@ -2904,13 +2911,13 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     clearSelection()
                     _actionMessage.value = if (ids.isNotEmpty())
                         "Created \"${created.playlist_name}\" and added ${created.tracks_added} tracks" +
-                            (if (retentionUntil != null) " · deletes ${created.expires_at ?: retentionUntil}" else "")
+                            (if (retentionUntil != null) " Β· deletes ${created.expires_at ?: retentionUntil}" else "")
                     else
                         "Created playlist \"${created.playlist_name}\""
                     return@launch
                 }
                 val newPlaylist = playlistRepository.createPlaylist(trimmed)
-                Log.d("MainViewModel", "Created playlist: ${newPlaylist.id} — ${newPlaylist.name}")
+                Log.d("MainViewModel", "Created playlist: ${newPlaylist.id} β€” ${newPlaylist.name}")
 
                 if (ids.isNotEmpty()) {
                     playlistRepository.addAlbumsToPlaylist(ids, newPlaylist.id)
@@ -2929,7 +2936,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 clearSelection()
                 _actionMessage.value = if (ids.isNotEmpty())
                     "Created \"${newPlaylist.name}\" and added ${ids.size} album(s)" +
-                        (if (retentionUntil != null) " · deletes $retentionUntil" else "")
+                        (if (retentionUntil != null) " Β· deletes $retentionUntil" else "")
                 else
                     "Created playlist \"${newPlaylist.name}\""
             } catch (e: Exception) {
@@ -2966,7 +2973,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
-    /** Switching backends drops all loaded state — the user re-queries. */
+    /** Switching backends drops all loaded state β€” the user re-queries. */
     private fun resetForDataSourceSwitch() {
         clearSelection()
         // The remote API does not expose Spotify album_type, so do not leave a
@@ -2994,9 +3001,9 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             _serverTestResult.value = null
             try {
                 val ok = dashboardRepository.testConnection(url)
-                _serverTestResult.value = if (ok) "✓ Server reachable" else "✕ No healthy response"
+                _serverTestResult.value = if (ok) "β“ Server reachable" else "β• No healthy response"
             } catch (e: Exception) {
-                _serverTestResult.value = "✕ " + (e.message ?: "Connection failed")
+                _serverTestResult.value = "β• " + (e.message ?: "Connection failed")
             } finally {
                 _serverBusy.value = false
             }
@@ -3073,7 +3080,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
 
     /**
      * Phone-first sync: make the signed-in server account mirror this phone's
-     * on-device library. The server needs no Spotify link for this — it just
+     * on-device library. The server needs no Spotify link for this β€” it just
      * receives the CSV. Its own server-side Spotify sync stays available
      * separately (e.g. from the web UI).
      */
@@ -3088,14 +3095,14 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 val csv = spotifyRepository.buildLibraryCsv()
                 if (csv == null) {
                     _actionMessage.value =
-                        "This phone has no local library yet — sync locally first"
+                        "This phone has no local library yet β€” sync locally first"
                     return@launch
                 }
                 val result = dashboardRepository.importCsvText(csv, replace = true)
                 val kept = result.imported + result.existing
                 _actionMessage.value = "Pushed $kept albums" +
                     (if (result.removed > 0) ", removed ${result.removed}" else "") +
-                    (if (result.errors.isNotEmpty()) " · ${result.errors.size} warning(s)" else "")
+                    (if (result.errors.isNotEmpty()) " Β· ${result.errors.size} warning(s)" else "")
                 if (remoteActive()) {
                     loadLibraryFilterOptions()
                     runLibraryQuery()
@@ -3105,6 +3112,146 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 _actionMessage.value = "Push failed: ${e.message}"
             } finally {
                 _pushBusy.value = false
+            }
+        }
+    }
+
+    private val _pullBusy = MutableStateFlow(false)
+    val pullBusy: StateFlow<Boolean> = _pullBusy.asStateFlow()
+
+    fun pullServerLibraryToLocal() {
+        if (!dashboardRepository.hasSession()) {
+            _actionMessage.value = "Sign in to the media server first"
+            return
+        }
+        viewModelScope.launch {
+            _pullBusy.value = true
+            try {
+                val defaultFilter = FilterState()
+                val all = mutableListOf<AlbumEntity>()
+                var offset = 0
+                val limit = 200
+                while (true) {
+                    val (page, total) = dashboardRepository.queryAlbumsAsync(defaultFilter, limit, offset)
+                    all.addAll(page)
+                    if (all.size >= total || page.isEmpty()) break
+                    offset += page.size
+                }
+                if (all.isEmpty()) {
+                    _actionMessage.value = "The server library is empty \u2014 local library left unchanged"
+                    return@launch
+                }
+                dashboardRepository.clearLocalLibrary()
+                dashboardRepository.upsertAlbums(all)
+                loadLibraryFilterOptions()
+                runLibraryQuery()
+                _actionMessage.value = "Pulled ${all.size} albums from the server"
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Pull from server failed", e)
+                _actionMessage.value = "Pull failed: ${e.message}"
+            } finally {
+                _pullBusy.value = false
+            }
+        }
+    }
+
+    fun loadConcerts() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _concertsLoading.value = true
+            try {
+                _concerts.value = dashboardRepository.getAllConcerts()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "loadConcerts failed", e)
+            } finally {
+                _concertsLoading.value = false
+            }
+        }
+    }
+
+    fun scanConcerts(url: String? = null, text: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _concertsLoading.value = true
+            _concertActionMessage.value = null
+            try {
+                val extracted = dashboardRepository.extractConcerts(url, text)
+                val names = extracted.map { it.artist }.distinct()
+                val resolved = dashboardRepository.resolveArtists(names)
+                val followed = resolved?.resolved?.associate { it.name.lowercase() to it.followed } ?: emptyMap()
+                val concerts = extracted.map { c ->
+                    val followedFlag = followed[c.artist.lowercase()] ?: false
+                    com.spotifydashboard.app.data.ConcertEntity(
+                        id = (c.artist + "-" + c.date).replace(Regex("\\s+"), "_"),
+                        artist = c.artist,
+                        artistId = resolved?.resolved?.firstOrNull { it.name.equals(c.artist, true) }?.spotify_id ?: "",
+                        title = c.artist + (if (c.venue.isNotBlank()) " at " + c.venue else ""),
+                        date = c.date,
+                        venue = c.venue,
+                        url = c.url,
+                        sourceUrl = url ?: "pasted text",
+                        followed = followedFlag,
+                        createdAt = java.time.Instant.now().toString()
+                    )
+                }
+                dashboardRepository.upsertConcerts(concerts)
+                _concerts.value = dashboardRepository.getAllConcerts()
+                _concertActionMessage.value = "Saved ${concerts.size} concert(s)"
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "scanConcerts failed", e)
+                _concertActionMessage.value = "Scan failed: ${e.message}"
+            } finally {
+                _concertsLoading.value = false
+            }
+        }
+    }
+
+    fun deleteConcert(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                dashboardRepository.deleteConcert(id)
+                _concerts.value = dashboardRepository.getAllConcerts()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "deleteConcert failed", e)
+            }
+        }
+    }
+
+    fun clearConcerts() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                dashboardRepository.clearConcerts()
+                _concerts.value = emptyList()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "clearConcerts failed", e)
+            }
+        }
+    }
+
+    fun scanAlbumsUrl(url: String? = null, text: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _actionMessage.value = null
+            try {
+                val pairs = dashboardRepository.extractAlbums(url, text)
+                val resolved = dashboardRepository.resolveAlbums(pairs)
+                val albums = resolved?.resolved ?: emptyList()
+                if (albums.isEmpty()) {
+                    _actionMessage.value = "No albums resolved from page"
+                    return@launch
+                }
+                val csv = com.spotifydashboard.app.utils.CSVHelper.buildCsv(
+                    listOf("id", "title", "artist", "year", "genre", "image_url", "added_at"),
+                    albums.map { a ->
+                        listOf(a.spotify_id, a.title, a.artist_name, a.year, "", a.image_url, java.time.Instant.now().toString())
+                    }
+                )
+                val result = if (remoteActive()) dashboardRepository.importCsvText(csv) else spotifyRepository.importCsvText(csv)
+                _csvImportResult.value = result
+                loadLibraryFilterOptions()
+                runLibraryQuery()
+                val added = result.imported + result.existing
+                _actionMessage.value = "Added $added album${if (added == 1) "" else "s"} to the library"
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "scanAlbumsUrl failed", e)
+                _actionMessage.value = "Scan failed: ${e.message}"
             }
         }
     }
@@ -3722,7 +3869,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
-    /** Delete the local library (destructive — UI must confirm first). */
+    /** Delete the local library (destructive β€” UI must confirm first). */
     fun clearLibrary() {        viewModelScope.launch {
             try {
                 if (remoteActive()) dashboardRepository.clearRemoteLibrary()
@@ -3764,7 +3911,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     _actionMessage.value = "Backup saved: ${backup.filename}" +
                         (if (backup.bytes > 0) " (${backup.bytes / 1024} KB)" else "")
                 } else {
-                    _actionMessage.value = "Library is empty — nothing to back up"
+                    _actionMessage.value = "Library is empty β€” nothing to back up"
                 }
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Backup failed", e)
@@ -3803,114 +3950,11 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 if (backup != null) {
                     _actionMessage.value = "Saved: ${backup.filename}"
                 } else {
-                    _actionMessage.value = "Playlist is empty — nothing to export"
+                    _actionMessage.value = "Playlist is empty β€” nothing to export"
                 }
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Playlist export failed", e)
                 _actionMessage.value = "Export failed: ${e.message}"
-            }
-        }
-    }
-
-    // --- Phase 3c: AI URL scan / concerts (data-layer wiring) -------------
-
-    fun loadConcerts() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _concertsLoading.value = true
-            try {
-                _concerts.value = dashboardRepository.getAllConcerts()
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "loadConcerts failed", e)
-            } finally {
-                _concertsLoading.value = false
-            }
-        }
-    }
-
-    fun scanConcerts(url: String? = null, text: String? = null) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _concertsLoading.value = true
-            _concertActionMessage.value = null
-            try {
-                val extracted = dashboardRepository.extractConcerts(url, text)
-                val names = extracted.map { it.artist }.distinct()
-                val resolved = dashboardRepository.resolveArtists(names)
-                val followed = resolved?.resolved?.associate { it.name.lowercase() to it.followed } ?: emptyMap()
-                val concerts = extracted.map { c ->
-                    val followedFlag = followed[c.artist.lowercase()] ?: false
-                    com.spotifydashboard.app.data.ConcertEntity(
-                        id = (c.artist + "-" + c.date).replace(Regex("\\s+"), "_"),
-                        artist = c.artist,
-                        artistId = resolved?.resolved?.firstOrNull { it.name.equals(c.artist, true) }?.spotify_id ?: "",
-                        title = c.artist + (if (c.venue.isNotBlank()) " at " + c.venue else ""),
-                        date = c.date,
-                        venue = c.venue,
-                        url = c.url,
-                        sourceUrl = url ?: "pasted text",
-                        followed = followedFlag,
-                        createdAt = java.time.Instant.now().toString()
-                    )
-                }
-                dashboardRepository.upsertConcerts(concerts)
-                _concerts.value = dashboardRepository.getAllConcerts()
-                _concertActionMessage.value = "Saved ${concerts.size} concert(s)"
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "scanConcerts failed", e)
-                _concertActionMessage.value = "Scan failed: ${e.message}"
-            } finally {
-                _concertsLoading.value = false
-            }
-        }
-    }
-
-    fun deleteConcert(id: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                dashboardRepository.deleteConcert(id)
-                _concerts.value = dashboardRepository.getAllConcerts()
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "deleteConcert failed", e)
-            }
-        }
-    }
-
-    fun clearConcerts() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                dashboardRepository.clearConcerts()
-                _concerts.value = emptyList()
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "clearConcerts failed", e)
-            }
-        }
-    }
-
-    fun scanAlbumsUrl(url: String? = null, text: String? = null) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _actionMessage.value = null
-            try {
-                val pairs = dashboardRepository.extractAlbums(url, text)
-                val resolved = dashboardRepository.resolveAlbums(pairs)
-                val albums = resolved?.resolved ?: emptyList()
-                if (albums.isEmpty()) {
-                    _actionMessage.value = "No albums resolved from page"
-                    return@launch
-                }
-                val csv = com.spotifydashboard.app.utils.CSVHelper.buildCsv(
-                    listOf("id", "title", "artist", "year", "genre", "image_url", "added_at"),
-                    albums.map { a ->
-                        listOf(a.spotify_id, a.title, a.artist_name, a.year, "", a.image_url, java.time.Instant.now().toString())
-                    }
-                )
-                val result = if (remoteActive()) dashboardRepository.importCsvText(csv) else spotifyRepository.importCsvText(csv)
-                _csvImportResult.value = result
-                loadLibraryFilterOptions()
-                runLibraryQuery()
-                val added = result.imported + result.existing
-                _actionMessage.value = "Added $added album${if (added == 1) "" else "s"} to the library"
-            } catch (e: Exception) {
-                Log.e("MainViewModel", "scanAlbumsUrl failed", e)
-                _actionMessage.value = "Scan failed: ${e.message}"
             }
         }
     }
