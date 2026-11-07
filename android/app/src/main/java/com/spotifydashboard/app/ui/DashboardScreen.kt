@@ -159,6 +159,7 @@ private fun SpotifyDashboardContent(
     val libraryLoading by viewModel.libraryLoading.collectAsState()
     val libraryLoadingMore by viewModel.libraryLoadingMore.collectAsState()
     val libraryHasMore by viewModel.libraryHasMore.collectAsState()
+    val libraryViewAll by viewModel.libraryViewAll.collectAsState()
     val librarySyncState by viewModel.librarySyncState.collectAsState()
     val libraryStats by viewModel.libraryStats.collectAsState()
     val libraryFilters by viewModel.libraryFilters.collectAsState()
@@ -395,6 +396,8 @@ private fun SpotifyDashboardContent(
                     loading = libraryLoading,
                     loadingMore = libraryLoadingMore,
                     hasMore = libraryHasMore,
+                    viewAll = libraryViewAll,
+                    onToggleViewAll = viewModel::toggleLibraryViewAll,
                     syncState = librarySyncState,
                     filters = libraryFilters,
                     genres = libraryGenres,
@@ -1469,6 +1472,8 @@ fun LibraryTab(
     loading: Boolean,
     loadingMore: Boolean,
     hasMore: Boolean,
+    viewAll: Boolean = false,
+    onToggleViewAll: () -> Unit = {},
     syncState: SyncState,
     filters: FilterState,
     genres: List<String>,
@@ -1506,6 +1511,7 @@ fun LibraryTab(
     onLocalQueueReset: (() -> Unit)? = null,
     onOpenAlbum: (AlbumEntity) -> Unit = {}
 ) {
+    var showViewAllConfirm by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxSize()) {
         // Search edits filters directly — the actual DB query is debounced 250ms
         // in the ViewModel (mirrors TS queryFilters).
@@ -1618,6 +1624,45 @@ fun LibraryTab(
             color = SpotifyLightGray,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
+
+        // View all toggle (load every filtered album)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("View all", style = MaterialTheme.typography.bodySmall, color = SpotifyLightGray)
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(
+                checked = viewAll,
+                onCheckedChange = { checked ->
+                    if (checked && total > 200 && !viewAll) {
+                        showViewAllConfirm = true
+                    } else {
+                        onToggleViewAll()
+                    }
+                }
+            )
+        }
+
+        if (showViewAllConfirm) {
+            AlertDialog(
+                onDismissRequest = { showViewAllConfirm = false },
+                title = { Text("View all albums?") },
+                text = { Text("Loading all $total albums at once may slow down the app. Continue?") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showViewAllConfirm = false
+                        onToggleViewAll()
+                    }) { Text("View all") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showViewAllConfirm = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
 
         if (selectedAlbums.isNotEmpty()) {
             SelectionToolbar(
