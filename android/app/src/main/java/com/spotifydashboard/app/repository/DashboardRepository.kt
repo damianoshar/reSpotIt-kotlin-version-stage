@@ -1,14 +1,16 @@
-package com.spotifydashboard.app.repository
+﻿package com.spotifydashboard.app.repository
 
 import android.content.Context
 import android.util.Log
 import okhttp3.OkHttpClient
 import com.spotifydashboard.app.api.*
 import com.spotifydashboard.app.data.AlbumEntity
+import com.spotifydashboard.app.data.ConcertEntity
 import com.spotifydashboard.app.data.FilterState
 import com.spotifydashboard.app.data.LibraryStats
 import com.spotifydashboard.app.data.StatsBucket
 import com.spotifydashboard.app.data.PlaylistAlbumEntity
+import com.spotifydashboard.app.data.AppDatabase
 import com.spotifydashboard.app.utils.BackupFile
 import com.spotifydashboard.app.utils.CSVHelper
 import com.spotifydashboard.app.utils.CsvImportResult
@@ -25,7 +27,7 @@ import java.util.Locale
 data class AuthProbeResult(val reachable: Boolean, val authenticated: Boolean)
 
 /**
- * Media-server data source — the Kotlin twin of the TypeScript remote layer
+ * Media-server data source β€” the Kotlin twin of the TypeScript remote layer
  * (services/remote). Talks to any conformant /api/v1 backend (Elixir is the
  * reference; Python and .NET implement the same contract).
  *
@@ -33,7 +35,7 @@ data class AuthProbeResult(val reachable: Boolean, val authenticated: Boolean)
  * the TS layer uses Capacitor Preferences. Spotify tokens stay server-side;
  * only the app JWT crosses the wire, with one 401 refresh-and-retry.
  *
- * UI wiring (mode toggle, ViewModel branching) is the next slice — this file
+ * UI wiring (mode toggle, ViewModel branching) is the next slice β€” this file
  * is the complete data layer with zero UI dependencies.
  */
 class DashboardRepository(private val context: Context) {
@@ -45,6 +47,8 @@ class DashboardRepository(private val context: Context) {
 
     private val prefs
         get() = context.getSharedPreferences("dashboard_remote_prefs", Context.MODE_PRIVATE)
+
+    private val concertDao by lazy { AppDatabase.getDatabase(context).concertDao() }
 
     // -- Settings -----------------------------------------------------------
 
@@ -227,31 +231,55 @@ class DashboardRepository(private val context: Context) {
         Unit
     }
 
-    // --- Phase 0: AI URL scan helpers ---
-    suspend fun extractAlbums(url: String? = null, text: String? = null): ExtractAlbumsResponse? = withContext(Dispatchers.IO) {
+    // --- Phase 0/3: AI URL scan helpers ---
+
+    suspend fun extractAlbums(url: String? = null, text: String? = null): List<Pair<String, String>> = withContext(Dispatchers.IO) {
         val body = mutableMapOf<String, Any>()
         if (!url.isNullOrBlank()) body["url"] = url
         if (!text.isNullOrBlank()) body["text"] = text
-        authed { svc, header -> svc.extractAlbums(header, body) }
+        val res = authed { svc, header -> svc.extractAlbums(header, body) }
+        (res?.data?.albums ?: emptyList()).map { it.artist to it.album }
     }
 
-    suspend fun resolveAlbums(items: List<Map<String, String>>): ResolveAlbumsResponse? = withContext(Dispatchers.IO) {
-        authed { svc, header -> svc.resolveAlbums(header, mapOf("items" to items)) }
+    suspend fun resolveAlbums(items: List<Pair<String, String>>): ResolveAlbumsResponse? = withContext(Dispatchers.IO) {
+        val list = items.map { mapOf("artist" to it.first, "album" to it.second) }
+        authed { svc, header -> svc.resolveAlbums(header, mapOf("items" to list)) }
     }
 
-    suspend fun extractConcerts(url: String? = null, text: String? = null): ExtractConcertsResponse? = withContext(Dispatchers.IO) {
+    suspend fun extractConcerts(url: String? = null, text: String? = null): List<ExtractedConcertDto> = withContext(Dispatchers.IO) {
         val body = mutableMapOf<String, Any>()
         if (!url.isNullOrBlank()) body["url"] = url
         if (!text.isNullOrBlank()) body["text"] = text
-        authed { svc, header -> svc.extractConcerts(header, body) }
+        val res = authed { svc, header -> svc.extractConcerts(header, body) }
+        res?.data?.concerts ?: emptyList()
     }
 
     suspend fun resolveArtists(names: List<String>): ResolveArtistsResponse? = withContext(Dispatchers.IO) {
         authed { svc, header -> svc.resolveArtists(header, mapOf("names" to names)) }
     }
 
-    suspend fun getFollowedArtists(): List<FollowedArtistDto>? = withContext(Dispatchers.IO) {
-        authed { svc, header -> svc.getFollowedArtists(header) }?.artists
+    suspend fun getFollowedArtists(): List<FollowedArtistDto> = withContext(Dispatchers.IO) {
+        authed { svc, header -> svc.getFollowedArtists(header) }?.artists ?: emptyList()
+    }
+
+    // --- Concerts (local Room) ---
+
+    suspend fun upsertConcerts(concerts: List<ConcertEntity>) = withContext(Dispatchers.IO) {
+        concertDao.upsertConcerts(concerts)
+    }
+
+    fun concertsFlow(): kotlinx.coroutines.flow.Flow<List<ConcertEntity>> = concertDao.getAllConcerts()
+
+    suspend fun getAllConcerts(): List<ConcertEntity> = withContext(Dispatchers.IO) {
+        concertDao.getAllConcertsList()
+    }
+
+    suspend fun deleteConcert(id: String) = withContext(Dispatchers.IO) {
+        concertDao.deleteConcert(id)
+    }
+
+    suspend fun clearConcerts() = withContext(Dispatchers.IO) {
+        concertDao.clearConcerts()
     }
 
     /**
@@ -278,7 +306,7 @@ class DashboardRepository(private val context: Context) {
     }
 
     private fun errorMessage(code: Int, fallback: String): String = when (code) {
-        401 -> "Session expired — please log in again."
+        401 -> "Session expired β€” please log in again."
         404 -> "Not found on the server."
         409 -> "Already in progress on the server."
         else -> "$fallback (HTTP $code)"
@@ -353,7 +381,7 @@ class DashboardRepository(private val context: Context) {
             Triple(g, a, y)
         }
 
-    // -- Library sync (start → poll → cancel) --------------------------------
+    // -- Library sync (start β†’ poll β†’ cancel) --------------------------------
 
     private fun mapStage(stage: String): SyncStage =
         when (stage) {
@@ -448,7 +476,7 @@ class DashboardRepository(private val context: Context) {
     // -- Sync history --------------------------------------------------------
 
     /**
-     * The server's recent runs, newest first — the canonical {data: [job
+     * The server's recent runs, newest first β€” the canonical {data: [job
      * envelope]} shape, listing every job type (callers filter to finished
      * syncs). History is a nicety: an unreachable or failing fetch yields an
      * empty list, never an exception that could block the sync UI.
@@ -468,7 +496,7 @@ class DashboardRepository(private val context: Context) {
     /**
      * Import CSV into the signed-in account's server library.
      * [replace] mirrors the payload: albums absent from it are deleted, which
-     * is what the phone → server push uses. Default false keeps the plain
+     * is what the phone β†’ server push uses. Default false keeps the plain
      * merge behaviour of the manual import screen.
      */
     suspend fun importCsvText(
@@ -515,7 +543,7 @@ class DashboardRepository(private val context: Context) {
             }
         }
 
-    // -- Queue (start → poll → result) ----------------------------------------
+    // -- Queue (start β†’ poll β†’ result) ----------------------------------------
 
     suspend fun queueAlbums(albumIds: Set<String>): QueueResult = withContext(Dispatchers.IO) {
         val start = authed { svc, header -> svc.startQueue(header, QueueStartRequest(albumIds.toList())) }
@@ -595,7 +623,7 @@ class DashboardRepository(private val context: Context) {
         }
 
     /**
-     * Remote playlist sync — server stages collapse onto the local tracks
+     * Remote playlist sync β€” server stages collapse onto the local tracks
      * progress (mirrors TS pollRemotePlaylistSync). Returns the album count.
      */
     suspend fun syncPlaylistRemote(
