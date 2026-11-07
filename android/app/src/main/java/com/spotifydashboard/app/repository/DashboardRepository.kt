@@ -575,6 +575,7 @@ class DashboardRepository(private val context: Context) {
             artist = item.artist,
             year = item.year,
             genre = item.genre,
+            albumType = item.albumType?.takeIf { it.isNotBlank() } ?: "album",
             imageUrl = item.image_url ?: "",
             imagePath = "",
             addedAt = item.added_at ?: ""

@@ -96,9 +96,6 @@ class MainViewModel(
 
     private val _libraryHasMore = MutableStateFlow(false)
     val libraryHasMore: StateFlow<Boolean> = _libraryHasMore.asStateFlow()
-
-    private val _libraryViewAll = MutableStateFlow(false)
-    val libraryViewAll: StateFlow<Boolean> = _libraryViewAll.asStateFlow()
     private val _libraryLoading = MutableStateFlow(true)
     val libraryLoading: StateFlow<Boolean> = _libraryLoading.asStateFlow()
 
@@ -769,11 +766,11 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
-    fun runLibraryQuery() {
+    fun runLibraryQuery(preserveOffset: Boolean = false) {
         viewModelScope.launch {
             try {
                 _libraryLoading.value = true
-                libraryOffset = 0
+                if (!preserveOffset) libraryOffset = 0
 
                 val f = _libraryFilters.value
                 Log.d("MainViewModel", "Running query with filters: search=${f.search}, genre=${f.genre}, artist=${f.artist}")
@@ -806,8 +803,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 }
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Query failed", e)
-                _libraryAlbumsList.value = emptyList()
-                _libraryTotal.value = 0
+                // Keep existing albums on failure so viewAll toggle doesn't wipe the grid
                 _libraryHasMore.value = false
             } finally {
                 _libraryLoading.value = false
@@ -817,7 +813,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
 
     fun toggleLibraryViewAll() {
         _libraryViewAll.value = !_libraryViewAll.value
-        runLibraryQuery()
+        runLibraryQuery(preserveOffset = true)
     }
 
     fun loadLibraryMore() {
@@ -2987,6 +2983,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     fun setServerMode(mode: String) {
         viewModelScope.launch(Dispatchers.IO) {
             dashboardRepository.setMode(mode)
+            refreshDataSourceState()
             withContext(Dispatchers.Main) { resetForDataSourceSwitch() }
         }
     }
@@ -3028,8 +3025,10 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             try {
                 val ok = dashboardRepository.testConnection(url)
                 _serverTestResult.value = if (ok) "β“ Server reachable" else "β• No healthy response"
+                if (!ok) setServerMode("local")
             } catch (e: Exception) {
                 _serverTestResult.value = "β• " + (e.message ?: "Connection failed")
+                setServerMode("local")
             } finally {
                 _serverBusy.value = false
             }
@@ -3038,11 +3037,6 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
 
     fun clearServerTestResult() {
         _serverTestResult.value = null
-    }
-
-    fun toggleLibraryViewAll() {
-        _libraryViewAll.value = !_libraryViewAll.value
-        runLibraryQuery()
     }
 
     fun clearServerAuthError() {

@@ -108,7 +108,8 @@ data class RemoteAlbumItem(
     val year: Int = 0,
     val genre: String = "",
     val image_url: String? = null,
-    val added_at: String? = null
+    val added_at: String? = null,
+    @SerializedName("album_type") val albumType: String? = null
 )
 
 data class AlbumsPage(

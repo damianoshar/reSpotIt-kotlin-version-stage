@@ -115,7 +115,7 @@ class MainActivity : ComponentActivity() {
                     }
                     probe.reachable -> {
                         viewModel.clearServerAuthError()
-                        showServerLogin.value = true
+                        isAuthenticated.value = true
                     }
                     dashboardRepository.hasSession() -> {
                         // Offline start with a saved session: keep the shell
@@ -128,7 +128,7 @@ class MainActivity : ComponentActivity() {
                             "Could not reach the media server at " +
                                 dashboardRepository.getServerUrl()
                         )
-                        showServerLogin.value = true
+                        isAuthenticated.value = true
                     }
                 }
                 isCheckingAuth.value = false

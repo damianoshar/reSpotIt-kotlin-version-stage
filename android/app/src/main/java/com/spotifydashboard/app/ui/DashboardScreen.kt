@@ -212,6 +212,7 @@ private fun SpotifyDashboardContent(
     val dataSource by viewModel.dataSource.collectAsState()
     val serverBusy by viewModel.serverBusy.collectAsState()
     val pushBusy by viewModel.pushBusy.collectAsState()
+    val pullBusy by viewModel.pullBusy.collectAsState()
     val serverTestResult by viewModel.serverTestResult.collectAsState()
     val syncHistory by viewModel.syncHistory.collectAsState()
     val aiAssistant by viewModel.aiAssistant.collectAsState()
@@ -658,6 +659,7 @@ private fun SpotifyDashboardContent(
                     dataSource = dataSource,
                     serverBusy = serverBusy,
                     pushBusy = pushBusy,
+                    pullBusy = pullBusy,
                     serverTestResult = serverTestResult,
                     onSetServerMode = viewModel::setServerMode,
                     onSetServerUrl = viewModel::setServerUrl,
@@ -665,6 +667,7 @@ private fun SpotifyDashboardContent(
                     onClearServerTestResult = viewModel::clearServerTestResult,
                     onServerLogin = onServerLogin,
                     onPushToServer = viewModel::pushLocalLibraryToServer,
+                    onPullServerToLocal = viewModel::pullServerLibraryToLocal,
                     onLogoutServer = onLogout,
                     onLinkSpotify = onLogin,
                     onUnlinkSpotify = viewModel::unlinkSpotify,
@@ -1177,6 +1180,7 @@ fun SettingsScreen(
     dataSource: MainViewModel.DataSourceState,
     serverBusy: Boolean,
     pushBusy: Boolean,
+    pullBusy: Boolean,
     serverTestResult: String?,
     onSetServerMode: (String) -> Unit,
     onSetServerUrl: (String) -> Unit,
@@ -1184,6 +1188,7 @@ fun SettingsScreen(
     onClearServerTestResult: () -> Unit,
     onServerLogin: () -> Unit,
     onPushToServer: () -> Unit,
+    onPullServerToLocal: () -> Unit,
     onLogoutServer: () -> Unit,
     onLinkSpotify: () -> Unit,
     onUnlinkSpotify: () -> Unit,
@@ -1206,6 +1211,7 @@ fun SettingsScreen(
                     email = dataSource.email,
                     busy = serverBusy,
                     pushBusy = pushBusy,
+                    pullBusy = pullBusy,
                     testResult = serverTestResult,
                     hasSession = dataSource.hasSession,
                     onSetMode = { onClearServerTestResult(); onSetServerMode(it) },
@@ -1213,6 +1219,7 @@ fun SettingsScreen(
                     onTestConnection = onTestServerUrl,
                     onRequestServerLogin = onServerLogin,
                     onPushToServer = onPushToServer,
+                    onPullServerToLocal = onPullServerToLocal,
                     onLogoutServer = onLogoutServer,
                     spotifyConnected = dataSource.spotifyConnected,
                     spotifyName = dataSource.spotifyName,
@@ -3437,6 +3444,7 @@ fun MediaServerSection(
     email: String?,
     busy: Boolean,
     pushBusy: Boolean,
+    pullBusy: Boolean,
     testResult: String?,
     hasSession: Boolean,
     spotifyConnected: Boolean,
@@ -3446,6 +3454,7 @@ fun MediaServerSection(
     onTestConnection: (String) -> Unit,
     onRequestServerLogin: () -> Unit,
     onPushToServer: () -> Unit,
+    onPullServerToLocal: () -> Unit,
     onLogoutServer: () -> Unit,
     onLinkSpotify: () -> Unit,
     onUnlinkSpotify: () -> Unit
@@ -3453,6 +3462,7 @@ fun MediaServerSection(
     val isRemote = mode == "remote"
     var urlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
     var showPushConfirm by remember { mutableStateOf(false) }
+    var showPullConfirm by remember { mutableStateOf(false) }
     var showViewAllConfirm by remember { mutableStateOf(false) }
     Column {
         Row(
@@ -3505,11 +3515,7 @@ fun MediaServerSection(
             ) {
                 Text(if (busy) "Connecting..." else "Connect", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
-            LaunchedEffect(testResult) {
-                if (testResult != null && testResult.startsWith("✓")) {
-                    onRequestServerLogin()
-                }
-            }
+            // Do not auto-open server login on successful test; user clicks Sign in manually.
             if (testResult != null) {
                 Text(
                     text = testResult,
@@ -3557,6 +3563,48 @@ fun MediaServerSection(
                         },
                         dismissButton = {
                             TextButton(onClick = { showPushConfirm = false }) {
+                                Text("Cancel")
+                            }
+                        }
+                    )
+                }
+                OutlinedButton(
+                    onClick = { showPullConfirm = true },
+                    enabled = !pullBusy && !busy,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                ) {
+                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (pullBusy) "Pulling library…" else "Pull server to this phone")
+                }
+                Text(
+                    "Downloads the server's library onto this phone, replacing the " +
+                        "on-device copy. Albums that are not on the server are removed " +
+                        "here. Playlists, tracks and retention are kept.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SpotifyLightGray,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                if (showPullConfirm) {
+                    AlertDialog(
+                        onDismissRequest = { showPullConfirm = false },
+                        title = { Text("Pull the server's library?") },
+                        text = {
+                            Text(
+                                "This phone's local library will be replaced with the " +
+                                    "server's. Albums that are not on the server will be " +
+                                    "removed from this phone. Playlists and tracks are " +
+                                    "not touched."
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showPullConfirm = false
+                                onPullServerToLocal()
+                            }) { Text("Pull & overwrite") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showPullConfirm = false }) {
                                 Text("Cancel")
                             }
                         }
