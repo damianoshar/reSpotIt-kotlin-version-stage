@@ -28,6 +28,7 @@ import com.spotifydashboard.app.playback.LocalPlaybackController
 import com.spotifydashboard.app.playback.LocalPlaybackState
 import com.spotifydashboard.app.playback.LocalPlaybackTrack
 import com.spotifydashboard.app.data.AlbumEntity
+import com.spotifydashboard.app.data.ConcertEntity
 import com.spotifydashboard.app.data.FilterState
 import com.spotifydashboard.app.data.LibraryStats
 import com.spotifydashboard.app.data.PlaylistAlbumEntity
@@ -188,6 +189,13 @@ class MainViewModel(
     private val _siteAlbumLabels = MutableStateFlow<Map<String, String>>(emptyMap())
     val siteAlbumLabels: StateFlow<Map<String, String>> = _siteAlbumLabels.asStateFlow()
 
+    // --- AI URL scan / concerts (Phase 3c) ---
+    private val _concerts = MutableStateFlow<List<ConcertEntity>>(emptyList())
+    val concerts: StateFlow<List<ConcertEntity>> = _concerts.asStateFlow()
+    private val _concertsLoading = MutableStateFlow(false)
+    val concertsLoading: StateFlow<Boolean> = _concertsLoading.asStateFlow()
+    private val _concertActionMessage = MutableStateFlow<String?>(null)
+    val concertActionMessage: StateFlow<String?> = _concertActionMessage.asStateFlow()
     // --- Spotify search / artist discography (Tools) ---------------------
     private val _spotifySearchPlaylist = MutableStateFlow(SpotifySearchPlaylistState())
     val spotifySearchPlaylist: StateFlow<SpotifySearchPlaylistState> = _spotifySearchPlaylist.asStateFlow()
@@ -3803,4 +3811,108 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             }
         }
     }
+
+    // --- Phase 3c: AI URL scan / concerts (data-layer wiring) -------------
+
+    fun loadConcerts() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _concertsLoading.value = true
+            try {
+                _concerts.value = dashboardRepository.getAllConcerts()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "loadConcerts failed", e)
+            } finally {
+                _concertsLoading.value = false
+            }
+        }
+    }
+
+    fun scanConcerts(url: String? = null, text: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _concertsLoading.value = true
+            _concertActionMessage.value = null
+            try {
+                val extracted = dashboardRepository.extractConcerts(url, text)
+                val names = extracted.map { it.artist }.distinct()
+                val resolved = dashboardRepository.resolveArtists(names)
+                val followed = resolved?.resolved?.associate { it.name.lowercase() to it.followed } ?: emptyMap()
+                val concerts = extracted.map { c ->
+                    val followedFlag = followed[c.artist.lowercase()] ?: false
+                    com.spotifydashboard.app.data.ConcertEntity(
+                        id = (c.artist + "-" + c.date).replace(Regex("\\s+"), "_"),
+                        artist = c.artist,
+                        artistId = resolved?.resolved?.firstOrNull { it.name.equals(c.artist, true) }?.spotify_id ?: "",
+                        title = c.artist + (if (c.venue.isNotBlank()) " at " + c.venue else ""),
+                        date = c.date,
+                        venue = c.venue,
+                        url = c.url,
+                        sourceUrl = url ?: "pasted text",
+                        followed = followedFlag,
+                        createdAt = java.time.Instant.now().toString()
+                    )
+                }
+                dashboardRepository.upsertConcerts(concerts)
+                _concerts.value = dashboardRepository.getAllConcerts()
+                _concertActionMessage.value = "Saved ${concerts.size} concert(s)"
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "scanConcerts failed", e)
+                _concertActionMessage.value = "Scan failed: ${e.message}"
+            } finally {
+                _concertsLoading.value = false
+            }
+        }
+    }
+
+    fun deleteConcert(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                dashboardRepository.deleteConcert(id)
+                _concerts.value = dashboardRepository.getAllConcerts()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "deleteConcert failed", e)
+            }
+        }
+    }
+
+    fun clearConcerts() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                dashboardRepository.clearConcerts()
+                _concerts.value = emptyList()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "clearConcerts failed", e)
+            }
+        }
+    }
+
+    fun scanAlbumsUrl(url: String? = null, text: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _actionMessage.value = null
+            try {
+                val pairs = dashboardRepository.extractAlbums(url, text)
+                val resolved = dashboardRepository.resolveAlbums(pairs)
+                val albums = resolved?.resolved ?: emptyList()
+                if (albums.isEmpty()) {
+                    _actionMessage.value = "No albums resolved from page"
+                    return@launch
+                }
+                val csv = com.spotifydashboard.app.utils.CSVHelper.buildCsv(
+                    listOf("id", "title", "artist", "year", "genre", "image_url", "added_at"),
+                    albums.map { a ->
+                        listOf(a.spotify_id, a.title, a.artist_name, a.year, "", a.image_url, java.time.Instant.now().toString())
+                    }
+                )
+                val result = if (remoteActive()) dashboardRepository.importCsvText(csv) else spotifyRepository.importCsvText(csv)
+                _csvImportResult.value = result
+                loadLibraryFilterOptions()
+                runLibraryQuery()
+                val added = result.imported + result.existing
+                _actionMessage.value = "Added $added album${if (added == 1) "" else "s"} to the library"
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "scanAlbumsUrl failed", e)
+                _actionMessage.value = "Scan failed: ${e.message}"
+            }
+        }
+    }
+
 }
