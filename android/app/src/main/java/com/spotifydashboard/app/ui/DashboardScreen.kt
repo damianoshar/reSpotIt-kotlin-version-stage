@@ -142,6 +142,7 @@ private fun SpotifyDashboardContent(
     var showDuplicates by remember { mutableStateOf(false) }
     var showFollowConfirm by remember { mutableStateOf(false) }
     var showAddFromSite by remember { mutableStateOf(false) }
+    var showConcerts by remember { mutableStateOf(false) }
     var showSpotifySearchPlaylist by remember { mutableStateOf(false) }
     var showArtistDiscographyPlaylist by remember { mutableStateOf(false) }
     var showRetentionDialog by remember { mutableStateOf(false) }
@@ -520,6 +521,12 @@ private fun SpotifyDashboardContent(
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Add from site")
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(onClick = { viewModel.loadConcerts(); showConcerts = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Concerts calendar")
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedButton(
@@ -959,6 +966,18 @@ private fun SpotifyDashboardContent(
             onPrefetch = viewModel::prefetchSiteAlbums,
             onDismiss = { showAddFromSite = false },
             onAdd = viewModel::addAlbumsFromSite
+        )
+    }
+
+    if (showConcerts) {
+        ConcertsDialog(
+            concerts = viewModel.concerts.collectAsState().value,
+            loading = viewModel.concertsLoading.collectAsState().value,
+            message = viewModel.concertActionMessage.collectAsState().value,
+            onScan = { url -> viewModel.scanConcerts(url, null) },
+            onDelete = viewModel::deleteConcert,
+            onClear = viewModel::clearConcerts,
+            onDismiss = { showConcerts = false }
         )
     }
 
