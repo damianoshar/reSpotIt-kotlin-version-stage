@@ -451,6 +451,34 @@ data class ConcertsImportResponse(
     val errors: List<String> = emptyList()
 )
 
+// --- Concert scans (click-and-forget AI scan, pending review) ---
+
+data class ConcertScanStartBody(val url: String? = null, val text: String? = null)
+
+data class ConcertScanItemDto(
+    val artist: String = "",
+    val date: String = "",
+    val venue: String = "",
+    val url: String = ""
+)
+
+data class ConcertScanDto(
+    val id: String = "",
+    val source: String = "",
+    val source_url: String = "",
+    val source_kind: String = "text",
+    val status: String = "running",
+    val stage: String = "queued",
+    val message: String = "",
+    val items: List<ConcertScanItemDto> = emptyList(),
+    val error: String = "",
+    val chat_id: String = "",
+    val created_at: String? = null,
+    val updated_at: String? = null
+)
+
+data class ConcertScanLatestEnvelope(val scan: ConcertScanDto? = null)
+
 // --- Hidden duplicate blocklist (server-canonical) ---
 
 data class RemoteHiddenAlbumItem(
@@ -625,6 +653,31 @@ interface DashboardApiService {
         @Header("Authorization") auth: String,
         @Body body: ConcertsImportBody
     ): Response<ConcertsImportResponse>
+
+    // --- Concert scans (click-and-forget AI scan, pending review) ---
+
+    @POST("api/v1/concert-scans")
+    suspend fun startConcertScan(
+        @Header("Authorization") auth: String,
+        @Body body: ConcertScanStartBody
+    ): Response<ConcertScanDto>
+
+    @GET("api/v1/concert-scans/latest")
+    suspend fun latestConcertScan(
+        @Header("Authorization") auth: String
+    ): Response<ConcertScanLatestEnvelope>
+
+    @GET("api/v1/concert-scans/{id}")
+    suspend fun getConcertScan(
+        @Header("Authorization") auth: String,
+        @Path("id") scanId: String
+    ): Response<ConcertScanDto>
+
+    @HTTP(method = "DELETE", path = "api/v1/concert-scans/{id}", hasBody = false)
+    suspend fun deleteConcertScan(
+        @Header("Authorization") auth: String,
+        @Path("id") scanId: String
+    ): Response<Unit>
 
     // --- Hidden duplicate blocklist (server-canonical) ---
 

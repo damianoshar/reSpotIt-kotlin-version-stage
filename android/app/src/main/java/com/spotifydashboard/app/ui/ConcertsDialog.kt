@@ -13,14 +13,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.spotifydashboard.app.data.ConcertEntity
+import com.spotifydashboard.app.api.ConcertScanDto
 
 @Composable
 fun ConcertsDialog(
     concerts: List<ConcertEntity>,
     scanRows: List<ConcertScanRow>,
+    scan: ConcertScanDto?,
     loading: Boolean,
     message: String?,
     onScan: (String?, String?) -> Unit,
+    onRefreshScan: () -> Unit,
     onToggleScanRow: (Int) -> Unit,
     onSaveScanRows: (Boolean) -> Unit,
     onClearScanRows: () -> Unit,
@@ -70,6 +73,40 @@ fun ConcertsDialog(
                 ) {
                     if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     else Text("Scan with AI")
+                }
+
+                if (scan != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                when (scan.status) {
+                                    "running" -> "Scanning in the background (${scan.stage.ifBlank { "queued" }})..."
+                                    "ready" -> "Scan ready: ${scan.items.size} concert(s) to review."
+                                    "error" -> "Scan failed: ${scan.error.ifBlank { "unknown error" }}"
+                                    else -> "Scan ${scan.status}"
+                                },
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            if (scan.source_url.isNotBlank()) {
+                                Text(
+                                    scan.source_url,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = onRefreshScan, enabled = !loading) {
+                                    Text("Refresh")
+                                }
+                                TextButton(onClick = onClearScanRows, enabled = !loading) {
+                                    Text("Dismiss scan")
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (scanRows.isNotEmpty()) {

@@ -34,6 +34,7 @@ import com.spotifydashboard.app.data.LibraryStats
 import com.spotifydashboard.app.data.PlaylistAlbumEntity
 import com.spotifydashboard.app.data.ViewMode
 import com.spotifydashboard.app.api.RemoteAlbumTrack
+import com.spotifydashboard.app.api.ConcertScanDto
 import com.spotifydashboard.app.api.LLMChatRequest
 import com.spotifydashboard.app.api.LLMChatSummaryDto
 import com.spotifydashboard.app.api.LLMMessageDto
@@ -207,6 +208,10 @@ class MainViewModel(
     /** AI scan results awaiting an explicit save, correlated with followed artists. */
     private val _concertScanRows = MutableStateFlow<List<ConcertScanRow>>(emptyList())
     val concertScanRows: StateFlow<List<ConcertScanRow>> = _concertScanRows.asStateFlow()
+    /** The latest background (click-and-forget) scan row, so the dialog can show progress. */
+    private val _concertScan = MutableStateFlow<ConcertScanDto?>(null)
+    val concertScan: StateFlow<ConcertScanDto?> = _concertScan.asStateFlow()
+    private var concertScanPollJob: Job? = null
     // --- Spotify search / artist discography (Tools) ---------------------
     private val _spotifySearchPlaylist = MutableStateFlow(SpotifySearchPlaylistState())
     val spotifySearchPlaylist: StateFlow<SpotifySearchPlaylistState> = _spotifySearchPlaylist.asStateFlow()
@@ -3217,6 +3222,8 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 _concertsLoading.value = false
             }
         }
+        // Pick up whatever a background scan produced while the user was away.
+        refreshConcertScan()
     }
 
     fun scanConcerts(url: String? = null, text: String? = null) {
@@ -3225,35 +3232,14 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             _concertActionMessage.value = null
             _concertScanRows.value = emptyList()
             try {
-                val extracted = dashboardRepository.extractConcerts(url, text)
-                if (extracted.isEmpty()) {
-                    _concertActionMessage.value = "No concerts found on the page."
-                    return@launch
-                }
-                val names = extracted.map { it.artist }.distinct()
-                val resolved = dashboardRepository.resolveArtists(names)?.resolved ?: emptyList()
-                val resolvedByName = resolved.associateBy { it.name.lowercase() }
-                val rows = extracted.map { c ->
-                    val match = resolvedByName[c.artist.lowercase()]
-                        ?: resolved.firstOrNull {
-                            it.name.equals(c.artist, true) || it.matched_name.equals(c.artist, true)
-                        }
-                    ConcertScanRow(
-                        artist = c.artist,
-                        date = c.date,
-                        venue = c.venue,
-                        url = c.url,
-                        spotifyId = match?.spotify_id ?: "",
-                        sourceUrl = url ?: "pasted text",
-                        followed = match?.followed ?: false,
-                        // Correlate by default: only followed artists start selected.
-                        selected = match?.followed ?: false,
-                    )
-                }
-                _concertScanRows.value = rows
-                val followed = rows.count { it.followed }
+                // Click and forget: the server runs the extraction in the
+                // background and streams progress into Open WebUI. The results
+                // wait on the scan row for review when the user comes back.
+                val started = dashboardRepository.startConcertScan(url, text)
+                _concertScan.value = started
                 _concertActionMessage.value =
-                    "Found ${rows.size} concert(s); $followed by artists you follow."
+                    "Scan started in the background. You can close this - results will be waiting when you return."
+                pollConcertScan()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "scanConcerts failed", e)
                 _concertActionMessage.value = friendlyScanError(e)
@@ -3261,6 +3247,99 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 _concertsLoading.value = false
             }
         }
+    }
+
+    /**
+     * Pull the latest scan and turn a finished one into review rows. Called when
+     * the concerts dialog opens, on demand via "Refresh", and by the poller.
+     */
+    fun refreshConcertScan() {
+        if (!remoteActive()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val scan = dashboardRepository.latestConcertScan() ?: return@launch
+                _concertScan.value = scan
+                when (scan.status) {
+                    "error" -> _concertActionMessage.value =
+                        "Scan failed: ${scan.error.ifBlank { "unknown error" }}"
+                    "ready" -> applyConcertScan(scan)
+                    else -> _concertActionMessage.value =
+                        "Scanning in the background (${scan.stage.ifBlank { "queued" }})... " +
+                            "progress is logged in Open WebUI."
+                }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "refreshConcertScan failed", e)
+            }
+        }
+    }
+
+    /** Poll while a background scan is still running (best-effort, ~5 minutes). */
+    private fun pollConcertScan() {
+        concertScanPollJob?.cancel()
+        concertScanPollJob = viewModelScope.launch(Dispatchers.IO) {
+            repeat(75) {
+                delay(4000)
+                val scan = try {
+                    dashboardRepository.latestConcertScan()
+                } catch (_: Exception) {
+                    null
+                } ?: return@launch
+                _concertScan.value = scan
+                when (scan.status) {
+                    "ready" -> {
+                        applyConcertScan(scan)
+                        return@launch
+                    }
+                    "error" -> {
+                        _concertActionMessage.value =
+                            "Scan failed: ${scan.error.ifBlank { "unknown error" }}"
+                        return@launch
+                    }
+                    else -> _concertActionMessage.value =
+                        "Scanning in the background (${scan.stage.ifBlank { "queued" }})... " +
+                            "progress is logged in Open WebUI."
+                }
+            }
+        }
+    }
+
+    /** Correlate scan items with followed Spotify artists and expose review rows. */
+    private suspend fun applyConcertScan(scan: ConcertScanDto) {
+        val items = scan.items
+        if (items.isEmpty()) {
+            _concertScanRows.value = emptyList()
+            _concertActionMessage.value = "AI found no concerts on this page."
+            return
+        }
+        val resolved = try {
+            dashboardRepository.resolveArtists(items.map { it.artist }.distinct())?.resolved
+                ?: emptyList()
+        } catch (e: Exception) {
+            Log.w("MainViewModel", "resolveArtists failed for scan", e)
+            emptyList()
+        }
+        val resolvedByName = resolved.associateBy { it.name.lowercase() }
+        val rows = items.map { c ->
+            val match = resolvedByName[c.artist.lowercase()]
+                ?: resolved.firstOrNull {
+                    it.name.equals(c.artist, true) || it.matched_name.equals(c.artist, true)
+                }
+            ConcertScanRow(
+                artist = c.artist,
+                date = c.date,
+                venue = c.venue,
+                url = c.url,
+                spotifyId = match?.spotify_id ?: "",
+                sourceUrl = if (scan.source_kind == "url") scan.source_url else "pasted text",
+                followed = match?.followed ?: false,
+                // Correlate by default: only followed artists start selected.
+                selected = match?.followed ?: false,
+            )
+        }
+        _concertScanRows.value = rows
+        val followed = rows.count { it.followed }
+        _concertActionMessage.value =
+            "Scan ready: ${rows.size} concert(s); $followed by artists you follow. Review and save."
     }
 
     fun toggleConcertScanRow(index: Int) {
@@ -3296,6 +3375,16 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 if (remoteActive()) dashboardRepository.upsertRemoteConcerts(concerts)
                 else dashboardRepository.upsertConcerts(concerts)
                 _concerts.value = fetchConcerts()
+                // The scan is reviewed and saved: dismiss it so it does not come back.
+                _concertScan.value?.let { scan ->
+                    try {
+                        if (remoteActive()) dashboardRepository.deleteConcertScan(scan.id)
+                    } catch (e: Exception) {
+                        Log.w("MainViewModel", "Could not dismiss saved scan", e)
+                    }
+                    Unit
+                }
+                _concertScan.value = null
                 _concertScanRows.value = emptyList()
                 _concertActionMessage.value = "Saved ${concerts.size} concert(s)."
             } catch (e: Exception) {
@@ -3310,6 +3399,19 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     fun clearConcertScanRows() {
         _concertScanRows.value = emptyList()
         _concertActionMessage.value = null
+        // Dismiss the scan server-side too, so it does not reappear on reopen.
+        val scan = _concertScan.value
+        _concertScan.value = null
+        concertScanPollJob?.cancel()
+        if (scan != null && remoteActive()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    dashboardRepository.deleteConcertScan(scan.id)
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Could not dismiss the concert scan", e)
+                }
+            }
+        }
     }
 
     /** Turn connectivity failures into an actionable message instead of a raw socket error. */

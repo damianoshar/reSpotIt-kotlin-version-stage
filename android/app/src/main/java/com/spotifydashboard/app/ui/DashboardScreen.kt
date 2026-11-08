@@ -1022,9 +1022,11 @@ private fun SpotifyDashboardContent(
         ConcertsDialog(
             concerts = viewModel.concerts.collectAsState().value,
             scanRows = viewModel.concertScanRows.collectAsState().value,
+            scan = viewModel.concertScan.collectAsState().value,
             loading = viewModel.concertsLoading.collectAsState().value,
             message = viewModel.concertActionMessage.collectAsState().value,
             onScan = { url, text -> viewModel.scanConcerts(url, text) },
+            onRefreshScan = viewModel::refreshConcertScan,
             onToggleScanRow = viewModel::toggleConcertScanRow,
             onSaveScanRows = viewModel::saveConcertScanRows,
             onClearScanRows = viewModel::clearConcertScanRows,

@@ -361,6 +361,37 @@ class DashboardRepository(private val context: Context) {
             }
         }
 
+    // --- Concert scans (click-and-forget AI scan) ---
+    //
+    // The server runs the extraction in the background and streams progress
+    // into an Open WebUI chat; the extracted rows wait on the scan for review.
+
+    suspend fun startConcertScan(url: String? = null, text: String? = null): ConcertScanDto =
+        withContext(Dispatchers.IO) {
+            val body = ConcertScanStartBody(
+                url = url?.takeIf { it.isNotBlank() },
+                text = text?.takeIf { it.isNotBlank() },
+            )
+            authedOrThrow("Could not start the concert scan") { svc, header ->
+                svc.startConcertScan(header, body)
+            }
+        }
+
+    suspend fun latestConcertScan(): ConcertScanDto? = withContext(Dispatchers.IO) {
+        authed { svc, header -> svc.latestConcertScan(header) }?.scan
+    }
+
+    suspend fun getConcertScan(id: String): ConcertScanDto? = withContext(Dispatchers.IO) {
+        authed { svc, header -> svc.getConcertScan(header, id) }
+    }
+
+    suspend fun deleteConcertScan(id: String) = withContext(Dispatchers.IO) {
+        authedOrThrow("Could not dismiss the concert scan") { svc, header ->
+            svc.deleteConcertScan(header, id)
+        }
+        Unit
+    }
+
     // --- Hidden duplicate blocklist (server-canonical in remote mode) ---
 
     private fun AlbumEntity.toRemoteHiddenItem() = RemoteHiddenAlbumItem(
