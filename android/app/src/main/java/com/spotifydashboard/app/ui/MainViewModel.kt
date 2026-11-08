@@ -693,6 +693,8 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     // --- Action feedback ---
     private val _actionMessage = MutableStateFlow<String?>(null)
     val actionMessage: StateFlow<String?> = _actionMessage.asStateFlow()
+    private val _aiUrlScanLoading = MutableStateFlow(false)
+    val aiUrlScanLoading: StateFlow<Boolean> = _aiUrlScanLoading.asStateFlow()
 
     private var libraryOffset = 0
     private val PAGE_SIZE = 48
@@ -3254,6 +3256,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     fun scanAlbumsUrl(url: String? = null, text: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             _actionMessage.value = null
+            _aiUrlScanLoading.value = true
             try {
                 val pairs = dashboardRepository.extractAlbums(url, text)
                 val resolved = dashboardRepository.resolveAlbums(pairs)
@@ -3277,6 +3280,8 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             } catch (e: Exception) {
                 Log.e("MainViewModel", "scanAlbumsUrl failed", e)
                 _actionMessage.value = "Scan failed: ${e.message}"
+            } finally {
+                _aiUrlScanLoading.value = false
             }
         }
     }

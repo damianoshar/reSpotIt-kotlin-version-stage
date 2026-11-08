@@ -148,6 +148,7 @@ private fun SpotifyDashboardContent(
     var showAddFromSite by remember { mutableStateOf(false) }
     LaunchedEffect(sharedSiteUrl) { if (sharedSiteUrl != null) showAddFromSite = true }
     var showConcerts by remember { mutableStateOf(false) }
+    var showAiUrlScan by remember { mutableStateOf(false) }
     var showSpotifySearchPlaylist by remember { mutableStateOf(false) }
     var showArtistDiscographyPlaylist by remember { mutableStateOf(false) }
     var showRetentionDialog by remember { mutableStateOf(false) }
@@ -531,6 +532,12 @@ private fun SpotifyDashboardContent(
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Add from site")
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(onClick = { showAiUrlScan = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Scan page with AI (albums)")
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedButton(onClick = { viewModel.loadConcerts(); showConcerts = true }, modifier = Modifier.fillMaxWidth()) {
@@ -1015,6 +1022,15 @@ private fun SpotifyDashboardContent(
             onDelete = viewModel::deleteConcert,
             onClear = viewModel::clearConcerts,
             onDismiss = { showConcerts = false }
+        )
+    }
+
+    if (showAiUrlScan) {
+        AiUrlScanDialog(
+            loading = viewModel.aiUrlScanLoading.collectAsState().value,
+            message = viewModel.actionMessage.collectAsState().value,
+            onScan = { url -> viewModel.scanAlbumsUrl(url) },
+            onDismiss = { showAiUrlScan = false }
         )
     }
 
