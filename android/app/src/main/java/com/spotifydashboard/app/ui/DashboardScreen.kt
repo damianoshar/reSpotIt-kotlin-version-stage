@@ -1026,6 +1026,7 @@ private fun SpotifyDashboardContent(
             loading = viewModel.concertsLoading.collectAsState().value,
             message = viewModel.concertActionMessage.collectAsState().value,
             onScan = { url, text -> viewModel.scanConcerts(url, text) },
+            onUploadFile = { name, bytes, mime -> viewModel.uploadConcertScanFile(name, bytes, mime) },
             onRefreshScan = viewModel::refreshConcertScan,
             onToggleScanRow = viewModel::toggleConcertScanRow,
             onSaveScanRows = viewModel::saveConcertScanRows,

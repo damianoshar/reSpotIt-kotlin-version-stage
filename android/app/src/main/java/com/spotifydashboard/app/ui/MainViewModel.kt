@@ -69,6 +69,9 @@ class MainViewModel(
 
         /** Hand over a moment before the track ends so the next one starts clean. */
         const val SWITCH_LEAD_MS = 600L
+
+        /** Matches the server's multipart upload cap for concert scans. */
+        const val MAX_SCAN_UPLOAD_BYTES = 5_000_000
     }
 
     private val _librarySyncState = MutableStateFlow<SyncState>(SyncState.Idle)
@@ -3227,6 +3230,18 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     }
 
     fun scanConcerts(url: String? = null, text: String? = null) {
+        val trimmedUrl = url?.trim().orEmpty()
+        val pasted = text?.trim().orEmpty()
+        if (trimmedUrl.isEmpty() && pasted.isNotEmpty()) {
+            // Pasted text goes through the multipart upload path as a .txt
+            // file, so paste and attach share one pipeline.
+            uploadConcertScanFile(
+                "pasted-concerts.txt",
+                pasted.toByteArray(Charsets.UTF_8),
+                "text/plain",
+            )
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             _concertsLoading.value = true
             _concertActionMessage.value = null
@@ -3235,13 +3250,46 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 // Click and forget: the server runs the extraction in the
                 // background and streams progress into Open WebUI. The results
                 // wait on the scan row for review when the user comes back.
-                val started = dashboardRepository.startConcertScan(url, text)
+                val started = dashboardRepository.startConcertScan(
+                    trimmedUrl.takeIf { it.isNotEmpty() },
+                    null,
+                )
                 _concertScan.value = started
                 _concertActionMessage.value =
                     "Scan started in the background. You can close this - results will be waiting when you return."
                 pollConcertScan()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "scanConcerts failed", e)
+                _concertActionMessage.value = friendlyScanError(e)
+            } finally {
+                _concertsLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Upload a text/HTML file as the scan source (click-and-forget, same as a
+     * paste). Rejects files over the server's 5 MB cap before sending.
+     */
+    fun uploadConcertScanFile(fileName: String, bytes: ByteArray, mimeType: String) {
+        if (bytes.size > MAX_SCAN_UPLOAD_BYTES) {
+            _concertActionMessage.value =
+                "That file is too large (max ${MAX_SCAN_UPLOAD_BYTES / 1_000_000} MB). " +
+                    "Try a smaller file or paste the text."
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _concertsLoading.value = true
+            _concertActionMessage.value = null
+            _concertScanRows.value = emptyList()
+            try {
+                val started = dashboardRepository.uploadConcertScan(fileName, bytes, mimeType)
+                _concertScan.value = started
+                _concertActionMessage.value =
+                    "Uploaded $fileName. Scanning in the background - results will be waiting when you return."
+                pollConcertScan()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "uploadConcertScanFile failed", e)
                 _concertActionMessage.value = friendlyScanError(e)
             } finally {
                 _concertsLoading.value = false

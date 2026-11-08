@@ -1,5 +1,9 @@
 package com.spotifydashboard.app.ui
 
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,10 +14,14 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.spotifydashboard.app.data.ConcertEntity
 import com.spotifydashboard.app.api.ConcertScanDto
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ConcertsDialog(
@@ -23,6 +31,7 @@ fun ConcertsDialog(
     loading: Boolean,
     message: String?,
     onScan: (String?, String?) -> Unit,
+    onUploadFile: (String, ByteArray, String) -> Unit,
     onRefreshScan: () -> Unit,
     onToggleScanRow: (Int) -> Unit,
     onSaveScanRows: (Boolean) -> Unit,
@@ -35,6 +44,33 @@ fun ConcertsDialog(
     var pasteText by remember { mutableStateOf("") }
     // Default to correlating results with the user's followed Spotify artists.
     var followedOnly by remember { mutableStateOf(true) }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Read the chosen document's name, MIME and bytes, then hand it to the
+    // ViewModel which uploads it as the scan source (click-and-forget).
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch(Dispatchers.IO) {
+            val resolver = context.contentResolver
+            val name = resolver.query(uri, null, null, null, null)?.use { c ->
+                val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+            }?.takeIf { it.isNotBlank() } ?: "upload.txt"
+            val mime = resolver.getType(uri) ?: "text/plain"
+            val bytes = try {
+                resolver.openInputStream(uri)?.use { it.readBytes() }
+            } catch (e: Exception) {
+                null
+            }
+            withContext(Dispatchers.Main) {
+                if (bytes != null) onUploadFile(name, bytes, mime)
+            }
+        }
+    }
 
     val followedCount = scanRows.count { it.followed }
     val visibleRows = scanRows.mapIndexed { index, row -> index to row }
@@ -73,6 +109,16 @@ fun ConcertsDialog(
                 ) {
                     if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     else Text("Scan with AI")
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        filePicker.launch(arrayOf("text/*", "application/octet-stream"))
+                    },
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Attach file (.txt / .md / .html)")
                 }
 
                 if (scan != null) {

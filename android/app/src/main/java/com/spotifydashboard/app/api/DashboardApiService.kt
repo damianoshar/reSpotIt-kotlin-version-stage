@@ -1,5 +1,6 @@
 package com.spotifydashboard.app.api
 
+import okhttp3.MultipartBody
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
@@ -473,6 +474,8 @@ data class ConcertScanDto(
     val items: List<ConcertScanItemDto> = emptyList(),
     val error: String = "",
     val chat_id: String = "",
+    val source_id: String? = null,
+    val chunk_count: Int = 0,
     val created_at: String? = null,
     val updated_at: String? = null
 )
@@ -660,6 +663,13 @@ interface DashboardApiService {
     suspend fun startConcertScan(
         @Header("Authorization") auth: String,
         @Body body: ConcertScanStartBody
+    ): Response<ConcertScanDto>
+
+    @Multipart
+    @POST("api/v1/concert-scans/upload")
+    suspend fun uploadConcertScan(
+        @Header("Authorization") auth: String,
+        @Part file: MultipartBody.Part
     ): Response<ConcertScanDto>
 
     @GET("api/v1/concert-scans/latest")

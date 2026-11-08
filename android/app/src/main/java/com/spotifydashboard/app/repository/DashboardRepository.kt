@@ -2,7 +2,10 @@
 
 import android.content.Context
 import android.util.Log
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import com.spotifydashboard.app.api.*
 import com.spotifydashboard.app.data.AlbumEntity
 import com.spotifydashboard.app.data.ConcertEntity
@@ -376,6 +379,25 @@ class DashboardRepository(private val context: Context) {
                 svc.startConcertScan(header, body)
             }
         }
+
+    /**
+     * Upload a text/HTML file as the scan source. The server stores the full
+     * text and extracts it in chunks, exactly like a long paste.
+     */
+    suspend fun uploadConcertScan(
+        fileName: String,
+        bytes: ByteArray,
+        mimeType: String,
+    ): ConcertScanDto = withContext(Dispatchers.IO) {
+        val part = MultipartBody.Part.createFormData(
+            "file",
+            fileName,
+            bytes.toRequestBody(mimeType.toMediaTypeOrNull()),
+        )
+        authedOrThrow("Could not upload the concert scan file") { svc, header ->
+            svc.uploadConcertScan(header, part)
+        }
+    }
 
     suspend fun latestConcertScan(): ConcertScanDto? = withContext(Dispatchers.IO) {
         authed { svc, header -> svc.latestConcertScan(header) }?.scan
