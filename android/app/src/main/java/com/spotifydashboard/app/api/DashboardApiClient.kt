@@ -18,7 +18,15 @@ object DashboardApiClient {
 
     fun normalizeServerUrl(raw: String): String {
         val trimmed = raw.trim().trimEnd('/')
-        return if (trimmed.isEmpty()) DEFAULT_SERVER_URL else trimmed
+        if (trimmed.isEmpty()) return DEFAULT_SERVER_URL
+        // Accept host:port entries without a scheme so a saved URL can never
+        // be turned into a malformed Retrofit base URL.
+        val withScheme = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            trimmed
+        } else {
+            "http://$trimmed"
+        }
+        return withScheme
     }
 
     private val logging = HttpLoggingInterceptor().apply {
@@ -31,6 +39,7 @@ object DashboardApiClient {
             // A phone → server push sends the whole library in one import
             // request; 10s (the OkHttp default) is too tight for a large
             // library on a slow link. Normal calls are unaffected.
+            .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(120, TimeUnit.SECONDS)
             .build()

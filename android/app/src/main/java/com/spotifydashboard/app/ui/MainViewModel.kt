@@ -204,6 +204,9 @@ class MainViewModel(
     val concertsLoading: StateFlow<Boolean> = _concertsLoading.asStateFlow()
     private val _concertActionMessage = MutableStateFlow<String?>(null)
     val concertActionMessage: StateFlow<String?> = _concertActionMessage.asStateFlow()
+    /** AI scan results awaiting an explicit save, correlated with followed artists. */
+    private val _concertScanRows = MutableStateFlow<List<ConcertScanRow>>(emptyList())
+    val concertScanRows: StateFlow<List<ConcertScanRow>> = _concertScanRows.asStateFlow()
     // --- Spotify search / artist discography (Tools) ---------------------
     private val _spotifySearchPlaylist = MutableStateFlow(SpotifySearchPlaylistState())
     val spotifySearchPlaylist: StateFlow<SpotifySearchPlaylistState> = _spotifySearchPlaylist.asStateFlow()
@@ -3199,35 +3202,105 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         viewModelScope.launch(Dispatchers.IO) {
             _concertsLoading.value = true
             _concertActionMessage.value = null
+            _concertScanRows.value = emptyList()
             try {
                 val extracted = dashboardRepository.extractConcerts(url, text)
+                if (extracted.isEmpty()) {
+                    _concertActionMessage.value = "No concerts found on the page."
+                    return@launch
+                }
                 val names = extracted.map { it.artist }.distinct()
-                val resolved = dashboardRepository.resolveArtists(names)
-                val followed = resolved?.resolved?.associate { it.name.lowercase() to it.followed } ?: emptyMap()
-                val concerts = extracted.map { c ->
-                    val followedFlag = followed[c.artist.lowercase()] ?: false
-                    com.spotifydashboard.app.data.ConcertEntity(
-                        id = (c.artist + "-" + c.date).replace(Regex("\\s+"), "_"),
+                val resolved = dashboardRepository.resolveArtists(names)?.resolved ?: emptyList()
+                val resolvedByName = resolved.associateBy { it.name.lowercase() }
+                val rows = extracted.map { c ->
+                    val match = resolvedByName[c.artist.lowercase()]
+                        ?: resolved.firstOrNull {
+                            it.name.equals(c.artist, true) || it.matched_name.equals(c.artist, true)
+                        }
+                    ConcertScanRow(
                         artist = c.artist,
-                        artistId = resolved?.resolved?.firstOrNull { it.name.equals(c.artist, true) }?.spotify_id ?: "",
-                        title = c.artist + (if (c.venue.isNotBlank()) " at " + c.venue else ""),
                         date = c.date,
                         venue = c.venue,
                         url = c.url,
+                        spotifyId = match?.spotify_id ?: "",
                         sourceUrl = url ?: "pasted text",
-                        followed = followedFlag,
+                        followed = match?.followed ?: false,
+                        // Correlate by default: only followed artists start selected.
+                        selected = match?.followed ?: false,
+                    )
+                }
+                _concertScanRows.value = rows
+                val followed = rows.count { it.followed }
+                _concertActionMessage.value =
+                    "Found ${rows.size} concert(s); $followed by artists you follow."
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "scanConcerts failed", e)
+                _concertActionMessage.value = friendlyScanError(e)
+            } finally {
+                _concertsLoading.value = false
+            }
+        }
+    }
+
+    fun toggleConcertScanRow(index: Int) {
+        _concertScanRows.value = _concertScanRows.value.mapIndexed { i, row ->
+            if (i == index) row.copy(selected = !row.selected) else row
+        }
+    }
+
+    /** Saves the selected scan rows; with [followedOnly] hidden non-followed rows are skipped. */
+    fun saveConcertScanRows(followedOnly: Boolean = true) {
+        val selected = _concertScanRows.value.filter { it.selected && (!followedOnly || it.followed) }
+        if (selected.isEmpty()) {
+            _concertActionMessage.value = "Nothing selected to save."
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _concertsLoading.value = true
+            try {
+                val concerts = selected.mapIndexed { i, r ->
+                    ConcertEntity(
+                        id = (r.artist + "-" + r.date + "-" + i).replace(Regex("\\s+"), "_"),
+                        artist = r.artist,
+                        artistId = r.spotifyId,
+                        title = r.artist + (if (r.venue.isNotBlank()) " at " + r.venue else ""),
+                        date = r.date,
+                        venue = r.venue,
+                        url = r.url,
+                        sourceUrl = r.sourceUrl,
+                        followed = r.followed,
                         createdAt = java.time.Instant.now().toString()
                     )
                 }
                 dashboardRepository.upsertConcerts(concerts)
                 _concerts.value = dashboardRepository.getAllConcerts()
-                _concertActionMessage.value = "Saved ${concerts.size} concert(s)"
+                _concertScanRows.value = emptyList()
+                _concertActionMessage.value = "Saved ${concerts.size} concert(s)."
             } catch (e: Exception) {
-                Log.e("MainViewModel", "scanConcerts failed", e)
-                _concertActionMessage.value = "Scan failed: ${e.message}"
+                Log.e("MainViewModel", "saveConcertScanRows failed", e)
+                _concertActionMessage.value = "Save failed: ${e.message}"
             } finally {
                 _concertsLoading.value = false
             }
+        }
+    }
+
+    fun clearConcertScanRows() {
+        _concertScanRows.value = emptyList()
+        _concertActionMessage.value = null
+    }
+
+    /** Turn connectivity failures into an actionable message instead of a raw socket error. */
+    private fun friendlyScanError(e: Exception): String {
+        val detail = e.message ?: e::class.java.simpleName
+        return when (e) {
+            is java.net.ConnectException,
+            is java.net.SocketTimeoutException,
+            is java.net.UnknownHostException ->
+                "Can't reach the media server at ${dashboardRepository.getServerUrl()}. " +
+                    "Check the server is running and the phone is on the same Wi-Fi/network, " +
+                    "then update the Server URL in Settings. ($detail)"
+            else -> "Scan failed: $detail"
         }
     }
 
@@ -3279,7 +3352,7 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 _actionMessage.value = "Added $added album${if (added == 1) "" else "s"} to the library"
             } catch (e: Exception) {
                 Log.e("MainViewModel", "scanAlbumsUrl failed", e)
-                _actionMessage.value = "Scan failed: ${e.message}"
+                _actionMessage.value = friendlyScanError(e)
             } finally {
                 _aiUrlScanLoading.value = false
             }

@@ -241,23 +241,23 @@ class DashboardRepository(private val context: Context) {
 
     suspend fun extractAlbums(url: String? = null, text: String? = null): List<Pair<String, String>> = withContext(Dispatchers.IO) {
         val body = ExtractBody(url = url?.takeIf { it.isNotBlank() }, text = text?.takeIf { it.isNotBlank() })
-        val res = authed { svc, header -> svc.extractAlbums(header, body) }
+        val res = authed(llmService()) { svc, header -> svc.extractAlbums(header, body) }
         (res?.data?.albums ?: emptyList()).map { it.artist to it.album }
     }
 
     suspend fun resolveAlbums(items: List<Pair<String, String>>): ResolveAlbumsResponse? = withContext(Dispatchers.IO) {
         val list = items.map { ResolveAlbumItem(artist = it.first, album = it.second) }
-        authed { svc, header -> svc.resolveAlbums(header, ResolveAlbumsBody(items = list)) }
+        authed(llmService()) { svc, header -> svc.resolveAlbums(header, ResolveAlbumsBody(items = list)) }
     }
 
     suspend fun extractConcerts(url: String? = null, text: String? = null): List<ExtractedConcertDto> = withContext(Dispatchers.IO) {
         val body = ExtractBody(url = url?.takeIf { it.isNotBlank() }, text = text?.takeIf { it.isNotBlank() })
-        val res = authed { svc, header -> svc.extractConcerts(header, body) }
+        val res = authed(llmService()) { svc, header -> svc.extractConcerts(header, body) }
         res?.data?.concerts ?: emptyList()
     }
 
     suspend fun resolveArtists(names: List<String>): ResolveArtistsResponse? = withContext(Dispatchers.IO) {
-        authed { svc, header -> svc.resolveArtists(header, ResolveArtistsBody(names = names)) }
+        authed(llmService()) { svc, header -> svc.resolveArtists(header, ResolveArtistsBody(names = names)) }
     }
 
     suspend fun getFollowedArtists(): List<FollowedArtistDto> = withContext(Dispatchers.IO) {
@@ -410,8 +410,10 @@ class DashboardRepository(private val context: Context) {
      * refreshes once and retries. Returns the response body or null on
      * unsuccessful responses (callers throw with context).
      */
-    private suspend fun <T> authed(block: suspend (DashboardApiService, String) -> retrofit2.Response<T>): T? {
-        val svc = service()
+    private suspend fun <T> authed(
+        svc: DashboardApiService = service(),
+        block: suspend (DashboardApiService, String) -> retrofit2.Response<T>,
+    ): T? {
         var res = block(svc, authHeader())
         if (res.code() == 401 && !refreshJwt().isNullOrEmpty()) {
             try {
