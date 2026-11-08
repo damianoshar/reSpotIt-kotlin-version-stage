@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 fun AiUrlScanDialog(
     loading: Boolean,
     message: String?,
-    onScan: (String) -> Unit,
+    onScan: (String?, String?) -> Unit,
     onDismiss: () -> Unit
 ) {
     var urlText by remember { mutableStateOf("") }
@@ -50,7 +50,7 @@ fun AiUrlScanDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = { onScan(if (urlText.isNotBlank()) urlText else pasteText) },
+                    onClick = { onScan(urlText.takeIf { it.isNotBlank() }, pasteText.takeIf { it.isNotBlank() }) },
                     enabled = !loading && (urlText.isNotBlank() || pasteText.isNotBlank()),
                     modifier = Modifier.fillMaxWidth()
                 ) {

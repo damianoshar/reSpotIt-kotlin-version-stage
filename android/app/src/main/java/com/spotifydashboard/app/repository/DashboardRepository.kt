@@ -240,28 +240,24 @@ class DashboardRepository(private val context: Context) {
     // --- Phase 0/3: AI URL scan helpers ---
 
     suspend fun extractAlbums(url: String? = null, text: String? = null): List<Pair<String, String>> = withContext(Dispatchers.IO) {
-        val body = mutableMapOf<String, Any>()
-        if (!url.isNullOrBlank()) body["url"] = url
-        if (!text.isNullOrBlank()) body["text"] = text
+        val body = ExtractBody(url = url?.takeIf { it.isNotBlank() }, text = text?.takeIf { it.isNotBlank() })
         val res = authed { svc, header -> svc.extractAlbums(header, body) }
         (res?.data?.albums ?: emptyList()).map { it.artist to it.album }
     }
 
     suspend fun resolveAlbums(items: List<Pair<String, String>>): ResolveAlbumsResponse? = withContext(Dispatchers.IO) {
-        val list = items.map { mapOf("artist" to it.first, "album" to it.second) }
-        authed { svc, header -> svc.resolveAlbums(header, mapOf("items" to list)) }
+        val list = items.map { ResolveAlbumItem(artist = it.first, album = it.second) }
+        authed { svc, header -> svc.resolveAlbums(header, ResolveAlbumsBody(items = list)) }
     }
 
     suspend fun extractConcerts(url: String? = null, text: String? = null): List<ExtractedConcertDto> = withContext(Dispatchers.IO) {
-        val body = mutableMapOf<String, Any>()
-        if (!url.isNullOrBlank()) body["url"] = url
-        if (!text.isNullOrBlank()) body["text"] = text
+        val body = ExtractBody(url = url?.takeIf { it.isNotBlank() }, text = text?.takeIf { it.isNotBlank() })
         val res = authed { svc, header -> svc.extractConcerts(header, body) }
         res?.data?.concerts ?: emptyList()
     }
 
     suspend fun resolveArtists(names: List<String>): ResolveArtistsResponse? = withContext(Dispatchers.IO) {
-        authed { svc, header -> svc.resolveArtists(header, mapOf("names" to names)) }
+        authed { svc, header -> svc.resolveArtists(header, ResolveArtistsBody(names = names)) }
     }
 
     suspend fun getFollowedArtists(): List<FollowedArtistDto> = withContext(Dispatchers.IO) {

@@ -395,6 +395,11 @@ data class LLMDeleteChatEnvelope(val data: LLMDeleteChatResponse = LLMDeleteChat
 // --- Service ---
 
 // --- Phase 0: AI URL scan response models ---
+// Concrete request bodies (Retrofit/Gson reject Map<String, Any> / wildcards).
+data class ExtractBody(val url: String? = null, val text: String? = null)
+data class ResolveAlbumItem(val artist: String = "", val album: String = "")
+data class ResolveAlbumsBody(val items: List<ResolveAlbumItem> = emptyList())
+data class ResolveArtistsBody(val names: List<String> = emptyList())
 data class ExtractedAlbumDto(val artist: String = "", val album: String = "")
 data class ExtractAlbumsResponse(val data: ExtractAlbumsData? = null)
 data class ExtractAlbumsData(val albums: List<ExtractedAlbumDto> = emptyList())
@@ -657,13 +662,13 @@ interface DashboardApiService {
     @POST("api/v1/llm/extract-albums")
     suspend fun extractAlbums(
         @Header("Authorization") auth: String,
-        @Body body: Map<String, Any>
+        @Body body: ExtractBody
     ): Response<ExtractAlbumsResponse>
 
     @POST("api/v1/llm/extract-concerts")
     suspend fun extractConcerts(
         @Header("Authorization") auth: String,
-        @Body body: Map<String, Any>
+        @Body body: ExtractBody
     ): Response<ExtractConcertsResponse>
 
     @GET("api/v1/spotify/followed-artists")
@@ -674,13 +679,13 @@ interface DashboardApiService {
     @POST("api/v1/spotify/resolve-albums")
     suspend fun resolveAlbums(
         @Header("Authorization") auth: String,
-        @Body body: Map<String, Any>
+        @Body body: ResolveAlbumsBody
     ): Response<ResolveAlbumsResponse>
 
     @POST("api/v1/spotify/resolve-artists")
     suspend fun resolveArtists(
         @Header("Authorization") auth: String,
-        @Body body: Map<String, Any>
+        @Body body: ResolveArtistsBody
     ): Response<ResolveArtistsResponse>
 
     // --- Local LLM (Open WebUI proxy) ---

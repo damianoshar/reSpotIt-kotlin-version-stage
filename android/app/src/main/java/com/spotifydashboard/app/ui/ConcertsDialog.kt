@@ -17,12 +17,13 @@ fun ConcertsDialog(
     concerts: List<ConcertEntity>,
     loading: Boolean,
     message: String?,
-    onScan: (String) -> Unit,
+    onScan: (String?, String?) -> Unit,
     onDelete: (String) -> Unit,
     onClear: () -> Unit,
     onDismiss: () -> Unit
 ) {
     var urlText by remember { mutableStateOf("") }
+    var pasteText by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Concerts calendar") },
@@ -40,9 +41,17 @@ fun ConcertsDialog(
                     singleLine = true
                 )
                 Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = pasteText,
+                    onValueChange = { pasteText = it },
+                    label = { Text("...or paste page text") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+                Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = { onScan(urlText) },
-                    enabled = !loading && urlText.isNotBlank(),
+                    onClick = { onScan(urlText.takeIf { it.isNotBlank() }, pasteText.takeIf { it.isNotBlank() }) },
+                    enabled = !loading && (urlText.isNotBlank() || pasteText.isNotBlank()),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)

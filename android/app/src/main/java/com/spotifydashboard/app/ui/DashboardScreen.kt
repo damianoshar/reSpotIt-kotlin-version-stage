@@ -1017,7 +1017,7 @@ private fun SpotifyDashboardContent(
             concerts = viewModel.concerts.collectAsState().value,
             loading = viewModel.concertsLoading.collectAsState().value,
             message = viewModel.concertActionMessage.collectAsState().value,
-            onScan = { url -> viewModel.scanConcerts(url, null) },
+            onScan = { url, text -> viewModel.scanConcerts(url, text) },
             onDelete = viewModel::deleteConcert,
             onClear = viewModel::clearConcerts,
             onDismiss = { showConcerts = false }
@@ -1028,7 +1028,7 @@ private fun SpotifyDashboardContent(
         AiUrlScanDialog(
             loading = viewModel.aiUrlScanLoading.collectAsState().value,
             message = viewModel.actionMessage.collectAsState().value,
-            onScan = { url -> viewModel.scanAlbumsUrl(url) },
+            onScan = { url, text -> viewModel.scanAlbumsUrl(url, text) },
             onDismiss = { showAiUrlScan = false }
         )
     }
