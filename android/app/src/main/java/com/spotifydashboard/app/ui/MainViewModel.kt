@@ -3129,9 +3129,17 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     return@launch
                 }
                 val result = dashboardRepository.importCsvText(csv, replace = true)
+                // Concerts and hidden duplicates are server-canonical too: mirror
+                // this phone's copies so one device becomes the account's source
+                // of truth for every tool, not just the album table.
+                val concerts = dashboardRepository.getAllConcerts()
+                val hidden = spotifyRepository.getHiddenAlbums()
+                dashboardRepository.importRemoteConcerts(concerts)
+                dashboardRepository.importRemoteHiddenAlbums(hidden)
                 val kept = result.imported + result.existing
-                _actionMessage.value = "Pushed $kept albums" +
-                    (if (result.removed > 0) ", removed ${result.removed}" else "") +
+                _actionMessage.value = "Pushed $kept albums, ${concerts.size} concerts, " +
+                    "${hidden.size} hidden duplicate(s)" +
+                    (if (result.removed > 0) ", removed ${result.removed} albums" else "") +
                     (if (result.errors.isNotEmpty()) " Β· ${result.errors.size} warning(s)" else "")
                 if (remoteActive()) {
                     loadLibraryFilterOptions()
@@ -3173,9 +3181,17 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 }
                 dashboardRepository.clearLocalLibrary()
                 dashboardRepository.upsertAlbums(all)
+                // Concerts and hidden duplicates follow the library so local mode
+                // works offline from the same server-canonical data.
+                val concerts = dashboardRepository.getRemoteConcerts()
+                dashboardRepository.clearConcerts()
+                dashboardRepository.upsertConcerts(concerts)
+                val hidden = dashboardRepository.getRemoteHiddenAlbums()
+                spotifyRepository.replaceHiddenAlbums(hidden)
                 loadLibraryFilterOptions()
                 runLibraryQuery()
-                _actionMessage.value = "Pulled ${all.size} albums from the server"
+                _actionMessage.value = "Pulled ${all.size} albums, ${concerts.size} concerts, " +
+                    "${hidden.size} hidden duplicate(s) from the server"
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Pull from server failed", e)
                 _actionMessage.value = "Pull failed: ${e.message}"
@@ -3185,11 +3201,16 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
+    /** Concerts live on the device in local mode and on the server in remote mode. */
+    private suspend fun fetchConcerts(): List<ConcertEntity> =
+        if (remoteActive()) dashboardRepository.getRemoteConcerts()
+        else dashboardRepository.getAllConcerts()
+
     fun loadConcerts() {
         viewModelScope.launch(Dispatchers.IO) {
             _concertsLoading.value = true
             try {
-                _concerts.value = dashboardRepository.getAllConcerts()
+                _concerts.value = fetchConcerts()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "loadConcerts failed", e)
             } finally {
@@ -3272,8 +3293,9 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                         createdAt = java.time.Instant.now().toString()
                     )
                 }
-                dashboardRepository.upsertConcerts(concerts)
-                _concerts.value = dashboardRepository.getAllConcerts()
+                if (remoteActive()) dashboardRepository.upsertRemoteConcerts(concerts)
+                else dashboardRepository.upsertConcerts(concerts)
+                _concerts.value = fetchConcerts()
                 _concertScanRows.value = emptyList()
                 _concertActionMessage.value = "Saved ${concerts.size} concert(s)."
             } catch (e: Exception) {
@@ -3307,8 +3329,9 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     fun deleteConcert(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                dashboardRepository.deleteConcert(id)
-                _concerts.value = dashboardRepository.getAllConcerts()
+                if (remoteActive()) dashboardRepository.deleteRemoteConcert(id)
+                else dashboardRepository.deleteConcert(id)
+                _concerts.value = fetchConcerts()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "deleteConcert failed", e)
             }
@@ -3318,7 +3341,8 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     fun clearConcerts() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                dashboardRepository.clearConcerts()
+                if (remoteActive()) dashboardRepository.clearRemoteConcerts()
+                else dashboardRepository.clearConcerts()
                 _concerts.value = emptyList()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "clearConcerts failed", e)
@@ -3417,24 +3441,37 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     // --- Duplicate cleanup (card 269) ------------------------------------
 
     /**
-     * Scan the local library for likely duplicate releases. Remote mode is
-     * deliberately read-only for now: a server-side hidden store is needed
-     * before deleting server albums would be durable.
+     * Scan the library for likely duplicate releases. Remote mode scans the
+     * server's canonical library and blocklist, so the finder works in both
+     * modes (docs/STORAGE-POLICY.md).
      */
     fun findDuplicates() {
-        if (remoteActive()) {
-            _duplicateGroups.value = emptyList()
-            _hiddenAlbums.value = emptyList()
-            _actionMessage.value = "Duplicate cleanup is available in local mode for now"
-            return
-        }
         viewModelScope.launch(Dispatchers.IO) {
             _duplicatesLoading.value = true
             try {
-                val albums = spotifyRepository.getAllAlbums()
-                val groups = DuplicateFinder.find(albums)
+                val remote = remoteActive()
+                val albums = if (remote) {
+                    val all = mutableListOf<AlbumEntity>()
+                    var offset = 0
+                    val limit = 200
+                    while (true) {
+                        val (page, total) = dashboardRepository.queryAlbumsAsync(FilterState(), limit, offset)
+                        all.addAll(page)
+                        if (all.size >= total || page.isEmpty()) break
+                        offset += page.size
+                    }
+                    all
+                } else {
+                    spotifyRepository.getAllAlbums()
+                }
+                val hidden = if (remote) dashboardRepository.getRemoteHiddenAlbums()
+                             else spotifyRepository.getHiddenAlbums()
+                val hiddenIds = hidden.map { it.id }.toSet()
+                // Hidden rows stay in the server library (hiding is app-level),
+                // so filter them out before grouping.
+                val groups = DuplicateFinder.find(albums.filterNot { it.id in hiddenIds })
                 _duplicateGroups.value = groups
-                _hiddenAlbums.value = spotifyRepository.getHiddenAlbums()
+                _hiddenAlbums.value = hidden
                 Log.d("MainViewModel", "Duplicate scan: ${groups.size} groups in ${albums.size} albums")
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Duplicate scan failed", e)
@@ -3860,8 +3897,19 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         if (albums.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val hidden = spotifyRepository.hideAlbums(albums)
-                _actionMessage.value = "Removed $hidden duplicate album${if (hidden == 1) "" else "s"} from this device"
+                val remote = remoteActive()
+                val hidden = if (remote) {
+                    // Server-canonical blocklist: the albums stay in the server
+                    // library, so hiding is reversible and Spotify is untouched.
+                    dashboardRepository.hideRemoteAlbums(albums)
+                    albums.size
+                } else {
+                    spotifyRepository.hideAlbums(albums)
+                }
+                _actionMessage.value = if (remote)
+                    "Hidden $hidden duplicate album${if (hidden == 1) "" else "s"} on your media server"
+                else
+                    "Removed $hidden duplicate album${if (hidden == 1) "" else "s"} from this device"
                 loadLibraryFilterOptions()
                 runLibraryQuery()
                 findDuplicates()
@@ -3874,17 +3922,16 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
 
     /** Remove duplicate copies permanently from the Spotify online library. */
     fun removeDuplicateAlbumsPermanently(albums: List<AlbumEntity>) {
-        if (remoteActive()) {
-            _actionMessage.value = "Permanent removal is available in local mode for now"
-            return
-        }
         if (albums.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val removed = spotifyRepository.removeSavedAlbumsPermanently(albums)
+                val removed = if (remoteActive())
+                    dashboardRepository.removeSpotifyAlbums(albums.map { it.id })
+                else
+                    spotifyRepository.removeSavedAlbumsPermanently(albums)
                 _actionMessage.value = "Permanently removed $removed album${
                     if (removed == 1) "" else "s"
-                } from Spotify"
+                } from Spotify" + (if (remoteActive()) " (the server library updates on its next sync)" else "")
                 loadLibraryFilterOptions()
                 runLibraryQuery()
                 findDuplicates()
@@ -3898,8 +3945,13 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     fun restoreHiddenAlbums() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val restored = spotifyRepository.restoreHiddenAlbums()
-                _actionMessage.value = "Restored $restored hidden album${if (restored == 1) "" else "s"}"
+                val remote = remoteActive()
+                val restored = if (remote)
+                    dashboardRepository.restoreRemoteHiddenAlbums()
+                else
+                    spotifyRepository.restoreHiddenAlbums()
+                _actionMessage.value = "Restored $restored hidden album${if (restored == 1) "" else "s"}" +
+                    (if (remote) " on your media server" else "")
                 loadLibraryFilterOptions()
                 runLibraryQuery()
                 findDuplicates()

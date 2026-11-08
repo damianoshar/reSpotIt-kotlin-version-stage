@@ -608,7 +608,6 @@ private fun SpotifyDashboardContent(
                             showDuplicates = true
                             viewModel.findDuplicates()
                         },
-                        enabled = dataSource.mode != "remote",
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))

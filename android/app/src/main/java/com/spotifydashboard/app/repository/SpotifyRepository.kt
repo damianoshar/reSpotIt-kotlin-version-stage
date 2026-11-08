@@ -579,6 +579,14 @@ class SpotifyRepository(
         hidden.size - keep.size
     }
 
+    /**
+     * Replace the whole on-device blocklist. Used by "pull from server" so the
+     * phone mirrors the server's canonical hidden set (docs/STORAGE-POLICY.md).
+     */
+    suspend fun replaceHiddenAlbums(albums: List<AlbumEntity>) = withContext(Dispatchers.IO) {
+        saveHiddenAlbums(albums.filter { it.id.isNotBlank() })
+    }
+
     /** True when the current Spotify authorization can write the saved library. */
     fun hasLibraryModifyScope(): Boolean = authManager.hasGrantedScope("user-library-modify")
 

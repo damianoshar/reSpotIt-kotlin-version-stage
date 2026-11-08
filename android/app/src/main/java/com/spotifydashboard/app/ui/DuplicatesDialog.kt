@@ -142,14 +142,7 @@ fun DuplicateAlbumsDialog(
                     )
                 }
 
-                if (isRemote) {
-                    BoxMessage(
-                        title = "Local mode only for now",
-                        body = "Duplicate cleanup needs the on-device library. Switch the media server " +
-                            "off in Settings (or use the phone's local library) and try again. " +
-                            "Nothing on the server or in Spotify has been changed."
-                    )
-                } else if (loading || groups == null) {
+                if (loading || groups == null) {
                     Column(
                         modifier = Modifier.fillMaxSize(),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -171,7 +164,10 @@ fun DuplicateAlbumsDialog(
                             Text(
                                 "Groups are matched by title and primary artist, ignoring deluxe, " +
                                     "remaster and regional tags. Uncheck the copy to keep. Removal is " +
-                                    "local to this device and reversible — Spotify is untouched.",
+                                    if (isRemote)
+                                        "stored on your media server and is reversible — Spotify is untouched."
+                                    else
+                                        "local to this device and reversible — Spotify is untouched.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = SpotifyLightGray
                             )
@@ -248,7 +244,10 @@ fun DuplicateAlbumsDialog(
                                         )
                                         Text(
                                             "${hiddenAlbums.size} album${if (hiddenAlbums.size == 1) "" else "s"} " +
-                                                "hidden from this device. They will not come back on sync.",
+                                                if (isRemote)
+                                                    "hidden on your media server. They will not come back on sync."
+                                                else
+                                                    "hidden from this device. They will not come back on sync.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = SpotifyLightGray,
                                             modifier = Modifier.padding(top = 4.dp)
@@ -296,7 +295,7 @@ fun DuplicateAlbumsDialog(
                                 }
                                 OutlinedButton(
                                     onClick = { showPermanentConfirm = true },
-                                    enabled = selectedAlbums.isNotEmpty() && invalidGroups.isEmpty() && !isRemote,
+                                    enabled = selectedAlbums.isNotEmpty() && invalidGroups.isEmpty(),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = SpotifyRed)
                                 ) {
                                     Text("Remove permanently")

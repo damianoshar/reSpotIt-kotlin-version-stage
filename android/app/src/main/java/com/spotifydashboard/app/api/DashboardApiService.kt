@@ -419,6 +419,54 @@ data class ResolveAlbumsResponse(val resolved: List<ResolvedAlbumDto> = emptyLis
 data class ResolvedArtistDto(val name: String = "", val spotify_id: String = "", val matched_name: String = "", val image_url: String = "", val genres: List<String> = emptyList(), val followed: Boolean = false)
 data class ResolveArtistsResponse(val resolved: List<ResolvedArtistDto> = emptyList(), val unresolved: List<String> = emptyList())
 
+// --- Concerts (server-canonical — docs/STORAGE-POLICY.md) ---
+
+data class RemoteConcertItem(
+    val id: String = "",
+    val artist: String = "",
+    val artist_id: String = "",
+    val title: String = "",
+    val date: String = "",
+    val venue: String = "",
+    val url: String = "",
+    val source_url: String = "",
+    val followed: Boolean = false,
+    val created_at: String = ""
+)
+data class ConcertsEnvelope(val total: Int = 0, val concerts: List<RemoteConcertItem> = emptyList())
+data class ConcertsUpsertBody(val items: List<RemoteConcertItem> = emptyList())
+data class ConcertsImportBody(val items: List<RemoteConcertItem> = emptyList(), val replace: Boolean = false)
+data class ConcertsImportResponse(
+    val imported: Int = 0,
+    val existing: Int = 0,
+    val removed: Int = 0,
+    val total: Int = 0,
+    val errors: List<String> = emptyList()
+)
+
+// --- Hidden duplicate blocklist (server-canonical) ---
+
+data class RemoteHiddenAlbumItem(
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
+    val year: Int = 0,
+    val genre: String = "",
+    @SerializedName("album_type") val albumType: String = "album",
+    @SerializedName("image_url") val imageUrl: String? = null,
+    @SerializedName("added_at") val addedAt: String = ""
+)
+data class HiddenAlbumsEnvelope(val total: Int = 0, val albums: List<RemoteHiddenAlbumItem> = emptyList())
+data class HiddenAlbumsUpsertBody(val items: List<RemoteHiddenAlbumItem> = emptyList())
+data class HiddenAlbumsImportBody(val items: List<RemoteHiddenAlbumItem> = emptyList(), val replace: Boolean = false)
+data class HiddenAlbumsImportResponse(
+    val imported: Int = 0,
+    val existing: Int = 0,
+    val removed: Int = 0,
+    val total: Int = 0,
+    val errors: List<String> = emptyList()
+)
+
 interface DashboardApiService {
     @GET("api/v1/health")
     suspend fun health(): Response<HealthResponse>
@@ -544,6 +592,58 @@ interface DashboardApiService {
 
     @DELETE("api/v1/albums")
     suspend fun clearLibrary(@Header("Authorization") auth: String): Response<DeleteLibraryResponse>
+
+    // --- Concerts (server-canonical) ---
+
+    @GET("api/v1/concerts")
+    suspend fun getConcerts(@Header("Authorization") auth: String): Response<ConcertsEnvelope>
+
+    @POST("api/v1/concerts")
+    suspend fun upsertConcerts(
+        @Header("Authorization") auth: String,
+        @Body body: ConcertsUpsertBody
+    ): Response<Unit>
+
+    @HTTP(method = "DELETE", path = "api/v1/concerts/{id}", hasBody = false)
+    suspend fun deleteConcert(
+        @Header("Authorization") auth: String,
+        @Path("id") concertId: String
+    ): Response<Unit>
+
+    @HTTP(method = "DELETE", path = "api/v1/concerts", hasBody = false)
+    suspend fun clearConcerts(@Header("Authorization") auth: String): Response<Unit>
+
+    @POST("api/v1/concerts/import")
+    suspend fun importConcerts(
+        @Header("Authorization") auth: String,
+        @Body body: ConcertsImportBody
+    ): Response<ConcertsImportResponse>
+
+    // --- Hidden duplicate blocklist (server-canonical) ---
+
+    @GET("api/v1/albums/hidden")
+    suspend fun getHiddenAlbums(@Header("Authorization") auth: String): Response<HiddenAlbumsEnvelope>
+
+    @POST("api/v1/albums/hidden")
+    suspend fun hideAlbums(
+        @Header("Authorization") auth: String,
+        @Body body: HiddenAlbumsUpsertBody
+    ): Response<Unit>
+
+    @HTTP(method = "DELETE", path = "api/v1/albums/hidden/{id}", hasBody = false)
+    suspend fun restoreHiddenAlbum(
+        @Header("Authorization") auth: String,
+        @Path("id") albumId: String
+    ): Response<Unit>
+
+    @HTTP(method = "DELETE", path = "api/v1/albums/hidden", hasBody = false)
+    suspend fun restoreAllHiddenAlbums(@Header("Authorization") auth: String): Response<Unit>
+
+    @POST("api/v1/albums/hidden/import")
+    suspend fun importHiddenAlbums(
+        @Header("Authorization") auth: String,
+        @Body body: HiddenAlbumsImportBody
+    ): Response<HiddenAlbumsImportResponse>
 
     @GET("api/v1/playlists")
     suspend fun getPlaylists(@Header("Authorization") auth: String): Response<PlaylistListEnvelope>

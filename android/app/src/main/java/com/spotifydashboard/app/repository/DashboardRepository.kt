@@ -284,6 +284,137 @@ class DashboardRepository(private val context: Context) {
         concertDao.clearConcerts()
     }
 
+    // --- Concerts (server-canonical in remote mode) ---
+
+    private fun ConcertEntity.toRemoteItem() = RemoteConcertItem(
+        id = id,
+        artist = artist,
+        artist_id = artistId,
+        title = title,
+        date = date,
+        venue = venue,
+        url = url,
+        source_url = sourceUrl,
+        followed = followed,
+        created_at = createdAt,
+    )
+
+    private fun RemoteConcertItem.toEntity() = ConcertEntity(
+        id = id,
+        artist = artist,
+        artistId = artist_id,
+        title = title,
+        date = date,
+        venue = venue,
+        url = url,
+        sourceUrl = source_url,
+        followed = followed,
+        createdAt = created_at,
+    )
+
+    suspend fun getRemoteConcerts(): List<ConcertEntity> = withContext(Dispatchers.IO) {
+        authed { svc, header -> svc.getConcerts(header) }
+            ?.concerts?.map { it.toEntity() }
+            ?: emptyList()
+    }
+
+    suspend fun upsertRemoteConcerts(concerts: List<ConcertEntity>) = withContext(Dispatchers.IO) {
+        if (concerts.isEmpty()) return@withContext
+        authedOrThrow("Could not save concerts to the media server") { svc, header ->
+            svc.upsertConcerts(header, ConcertsUpsertBody(concerts.map { it.toRemoteItem() }))
+        }
+        Unit
+    }
+
+    suspend fun deleteRemoteConcert(id: String) = withContext(Dispatchers.IO) {
+        authedOrThrow("Could not delete the concert from the media server") { svc, header ->
+            svc.deleteConcert(header, id)
+        }
+        Unit
+    }
+
+    suspend fun clearRemoteConcerts() = withContext(Dispatchers.IO) {
+        authedOrThrow("Could not clear concerts on the media server") { svc, header ->
+            svc.clearConcerts(header)
+        }
+        Unit
+    }
+
+    /** Mirror the whole concert list onto the server (push uses this). */
+    suspend fun importRemoteConcerts(concerts: List<ConcertEntity>): ConcertsImportResponse =
+        withContext(Dispatchers.IO) {
+            authedOrThrow("Could not mirror concerts to the media server") { svc, header ->
+                svc.importConcerts(
+                    header,
+                    ConcertsImportBody(concerts.map { it.toRemoteItem() }, replace = true),
+                )
+            }
+        }
+
+    // --- Hidden duplicate blocklist (server-canonical in remote mode) ---
+
+    private fun AlbumEntity.toRemoteHiddenItem() = RemoteHiddenAlbumItem(
+        id = id,
+        title = title,
+        artist = artist,
+        year = year,
+        genre = genre,
+        albumType = albumType.ifBlank { "album" },
+        imageUrl = imageUrl.ifBlank { null },
+        addedAt = addedAt,
+    )
+
+    private fun RemoteHiddenAlbumItem.toAlbumEntity() = AlbumEntity(
+        id = id,
+        title = title,
+        artist = artist,
+        year = year,
+        genre = genre,
+        albumType = albumType.ifBlank { "album" },
+        imageUrl = imageUrl ?: "",
+        imagePath = "",
+        addedAt = addedAt,
+    )
+
+    suspend fun getRemoteHiddenAlbums(): List<AlbumEntity> = withContext(Dispatchers.IO) {
+        authed { svc, header -> svc.getHiddenAlbums(header) }
+            ?.albums?.map { it.toAlbumEntity() }
+            ?.filter { it.id.isNotBlank() }
+            ?: emptyList()
+    }
+
+    suspend fun hideRemoteAlbums(albums: List<AlbumEntity>) = withContext(Dispatchers.IO) {
+        if (albums.isEmpty()) return@withContext
+        authedOrThrow("Could not hide the albums on the media server") { svc, header ->
+            svc.hideAlbums(header, HiddenAlbumsUpsertBody(albums.map { it.toRemoteHiddenItem() }))
+        }
+        Unit
+    }
+
+    /** Clears the server blocklist; returns how many were hidden. */
+    suspend fun restoreRemoteHiddenAlbums(): Int = withContext(Dispatchers.IO) {
+        val hidden = getRemoteHiddenAlbums()
+        if (hidden.isEmpty()) return@withContext 0
+        authedOrThrow("Could not restore the hidden albums on the media server") { svc, header ->
+            svc.restoreAllHiddenAlbums(header)
+        }
+        hidden.size
+    }
+
+    /** Mirror the whole hidden blocklist onto the server (push uses this). */
+    suspend fun importRemoteHiddenAlbums(albums: List<AlbumEntity>): HiddenAlbumsImportResponse =
+        withContext(Dispatchers.IO) {
+            authedOrThrow("Could not mirror hidden albums to the media server") { svc, header ->
+                svc.importHiddenAlbums(
+                    header,
+                    HiddenAlbumsImportBody(
+                        albums.map { it.toRemoteHiddenItem() },
+                        replace = true,
+                    ),
+                )
+            }
+        }
+
     // --- Local album helpers for pull ---
     suspend fun upsertAlbums(albums: List<AlbumEntity>) = withContext(Dispatchers.IO) {
         albumDao.upsertAlbums(albums)
