@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import com.spotifydashboard.app.repository.SpotifyRepository
 import com.spotifydashboard.app.repository.PlaylistRepository
 import com.spotifydashboard.app.repository.DashboardRepository
@@ -215,6 +216,10 @@ class MainViewModel(
     private val _concertScan = MutableStateFlow<ConcertScanDto?>(null)
     val concertScan: StateFlow<ConcertScanDto?> = _concertScan.asStateFlow()
     private var concertScanPollJob: Job? = null
+    /** Fast-poll the scan for the first 5 minutes, then back off to 15 s. */
+    private val SCAN_POLL_FAST_MS = 5 * 60_000L
+    /** Stop polling after 45 minutes; the local model can need 6-13 minutes. */
+    private val SCAN_POLL_BUDGET_MS = 45 * 60_000L
     // --- Spotify search / artist discography (Tools) ---------------------
     private val _spotifySearchPlaylist = MutableStateFlow(SpotifySearchPlaylistState())
     val spotifySearchPlaylist: StateFlow<SpotifySearchPlaylistState> = _spotifySearchPlaylist.asStateFlow()
@@ -3311,9 +3316,14 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     "error" -> _concertActionMessage.value =
                         "Scan failed: ${scan.error.ifBlank { "unknown error" }}"
                     "ready" -> applyConcertScan(scan)
-                    else -> _concertActionMessage.value =
-                        "Scanning in the background (${scan.stage.ifBlank { "queued" }})... " +
-                            "progress is logged in Open WebUI."
+                    else -> {
+                        _concertActionMessage.value =
+                            "Scanning in the background (${scan.stage.ifBlank { "queued" }})... " +
+                                "progress is logged in Open WebUI."
+                        // Reopening the dialog must resume progress for a scan
+                        // that is still running, not freeze on one fetch.
+                        if (concertScanPollJob?.isActive != true) pollConcertScan()
+                    }
                 }
             } catch (e: Exception) {
                 Log.w("MainViewModel", "refreshConcertScan failed", e)
@@ -3321,12 +3331,21 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
-    /** Poll while a background scan is still running (best-effort, ~5 minutes). */
+    /**
+     * Poll while a background scan is still running. The local model needs
+     * 6-13 minutes on a 10 KB page, so a fixed 5-minute window ended before
+     * the scan did and left the dialog stuck on "Scanning...". Poll every 4 s
+     * for the first [SCAN_POLL_FAST_MS], then every 15 s, for a total of
+     * [SCAN_POLL_BUDGET_MS].
+     */
     private fun pollConcertScan() {
         concertScanPollJob?.cancel()
         concertScanPollJob = viewModelScope.launch(Dispatchers.IO) {
-            repeat(75) {
-                delay(4000)
+            var elapsedMs = 0L
+            while (elapsedMs < SCAN_POLL_BUDGET_MS) {
+                val waitMs = if (elapsedMs < SCAN_POLL_FAST_MS) 4_000L else 15_000L
+                delay(waitMs)
+                elapsedMs += waitMs
                 val scan = try {
                     dashboardRepository.latestConcertScan()
                 } catch (_: Exception) {
@@ -3348,6 +3367,8 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                             "progress is logged in Open WebUI."
                 }
             }
+            _concertActionMessage.value =
+                "Scan is still running. Open WebUI shows its progress; tap Refresh to check again."
         }
     }
 
@@ -3359,9 +3380,35 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             _concertActionMessage.value = "AI found no concerts on this page."
             return
         }
+        val sourceUrl = if (scan.source_kind == "url") scan.source_url else "pasted text"
+        fun rowFor(
+            c: com.spotifydashboard.app.api.ConcertScanItemDto,
+            match: com.spotifydashboard.app.api.ResolvedArtistDto?,
+        ) = ConcertScanRow(
+            artist = c.artist,
+            date = c.date,
+            venue = c.venue,
+            url = c.url,
+            spotifyId = match?.spotify_id ?: "",
+            sourceUrl = sourceUrl,
+            followed = match?.followed ?: false,
+            // Correlate by default: only followed artists start selected.
+            selected = match?.followed ?: false,
+        )
+
+        // Show the extracted concerts immediately. Matching every name against
+        // Spotify can take a while on large pages, and holding the rows back
+        // until then made a finished scan look stuck.
+        _concertScanRows.value = items.map { rowFor(it, null) }
+        _concertActionMessage.value =
+            "Scan ready: ${items.size} concert(s). Matching your followed artists..."
+
         val resolved = try {
-            dashboardRepository.resolveArtists(items.map { it.artist }.distinct())?.resolved
-                ?: emptyList()
+            // Never let a slow Spotify lookup hide the results.
+            withTimeoutOrNull(30_000) {
+                dashboardRepository.resolveArtists(items.map { it.artist }.distinct())?.resolved
+                    ?: emptyList()
+            } ?: emptyList()
         } catch (e: Exception) {
             Log.w("MainViewModel", "resolveArtists failed for scan", e)
             emptyList()
@@ -3372,22 +3419,15 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 ?: resolved.firstOrNull {
                     it.name.equals(c.artist, true) || it.matched_name.equals(c.artist, true)
                 }
-            ConcertScanRow(
-                artist = c.artist,
-                date = c.date,
-                venue = c.venue,
-                url = c.url,
-                spotifyId = match?.spotify_id ?: "",
-                sourceUrl = if (scan.source_kind == "url") scan.source_url else "pasted text",
-                followed = match?.followed ?: false,
-                // Correlate by default: only followed artists start selected.
-                selected = match?.followed ?: false,
-            )
+            rowFor(c, match)
         }
         _concertScanRows.value = rows
         val followed = rows.count { it.followed }
-        _concertActionMessage.value =
+        _concertActionMessage.value = if (followed > 0) {
             "Scan ready: ${rows.size} concert(s); $followed by artists you follow. Review and save."
+        } else {
+            "Scan ready: ${rows.size} concert(s). None match an artist you follow. Review and save."
+        }
     }
 
     fun toggleConcertScanRow(index: Int) {

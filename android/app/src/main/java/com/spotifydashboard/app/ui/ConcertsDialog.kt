@@ -77,6 +77,12 @@ fun ConcertsDialog(
         .filter { (_, row) -> !followedOnly || row.followed }
     val selectedVisible = scanRows.count { it.selected && (!followedOnly || it.followed) }
 
+    // If the scan matched no followed artist, an empty "Followed" view looks
+    // like the scan found nothing. Show all results in that case.
+    LaunchedEffect(followedCount, scanRows.size) {
+        if (followedCount == 0 && scanRows.isNotEmpty()) followedOnly = false
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Concerts calendar") },
