@@ -325,6 +325,8 @@ data class LLMChatRequest(
     @SerializedName("use_history") val useHistory: Boolean = false,
     @SerializedName("history_limit") val historyLimit: Int = 20,
     val persist: Boolean = false,
+    /** Chat type for filtering (assistant, extract_albums, extract_concerts, etc.) */
+    @SerializedName("chat_type") val chatType: String? = null,
 )
 
 data class LLMToolCallDto(
@@ -700,7 +702,10 @@ interface DashboardApiService {
     ): Response<LLMChatEnvelope>
 
     @GET("api/v1/llm/chats")
-    suspend fun llmChats(@Header("Authorization") auth: String): Response<LLMChatListEnvelope>
+    suspend fun llmChats(
+        @Header("Authorization") auth: String,
+        @Query("chat_type") chatType: String? = null
+    ): Response<LLMChatListEnvelope>
 
     @GET("api/v1/llm/chats/current")
     suspend fun llmCurrentChat(@Header("Authorization") auth: String): Response<LLMChatRowEnvelope>

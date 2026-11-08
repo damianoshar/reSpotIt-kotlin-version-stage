@@ -4183,6 +4183,18 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
+    /** Refresh AI chats filtered by type (e.g., extract_albums, extract_concerts). */
+    suspend fun refreshAiChatsByType(chatType: String) {
+        try {
+            val rows = dashboardRepository.llmChats(chatType)
+            _aiAssistant.update { it.copy(chats = rows) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // The sidebar is optional; the thread still works.
+        }
+    }
+
     /** Clears the local thread and forgets the server-side chat pointer. */
     fun startNewAiChat() {
         if (_aiAssistant.value.busy) return

@@ -6,7 +6,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -18,6 +17,7 @@ fun AiUrlScanDialog(
 ) {
     var urlText by remember { mutableStateOf("") }
     var pasteText by remember { mutableStateOf("") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Scan page with AI (albums)") },

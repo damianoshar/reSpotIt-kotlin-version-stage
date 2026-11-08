@@ -24,6 +24,7 @@ fun ConcertsDialog(
 ) {
     var urlText by remember { mutableStateOf("") }
     var pasteText by remember { mutableStateOf("") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Concerts calendar") },

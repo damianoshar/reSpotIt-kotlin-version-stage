@@ -512,9 +512,9 @@ class DashboardRepository(private val context: Context) {
             }.data
         }
 
-    suspend fun llmChats(): List<LLMChatSummaryDto> = withContext(Dispatchers.IO) {
+    suspend fun llmChats(chatType: String? = null): List<LLMChatSummaryDto> = withContext(Dispatchers.IO) {
         authedOrThrow(llmService(), "Failed to load chat history") { svc, header ->
-            svc.llmChats(header)
+            svc.llmChats(header, chatType)
         }.data
     }
 
