@@ -3489,7 +3489,7 @@ fun MediaServerSection(
                 value = urlDraft,
                 onValueChange = { urlDraft = it },
                 label = { Text("Server URL") },
-                placeholder = { Text("http://10.0.2.2:4000") },
+                placeholder = { Text("https://192.168.1.11:8000") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
             )
