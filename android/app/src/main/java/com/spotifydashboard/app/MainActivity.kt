@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
 
         val db = AppDatabase.getDatabase(this)
         authManager = SpotifyAuthManager(this)
+        showCredentials.value = !authManager.hasCredentials()
         dashboardRepository = DashboardRepository(this)
 
         val spotifyRepository = SpotifyRepository(this, db.albumDao(), db.playlistDao(), authManager)
@@ -222,7 +223,8 @@ class MainActivity : ComponentActivity() {
                     } else if (showCredentials.value) {
                         SpotifyCredentialsScreen(
                             authManager = authManager,
-                            onBack = { showCredentials.value = false }
+                            onBack = { showCredentials.value = false },
+                            onSaved = { showCredentials.value = false }
                         )
                     } else if (!isAuthenticated.value && !authManager.hasCredentials()) {
                         SpotifyCredentialsScreen(
