@@ -45,17 +45,6 @@ object DashboardApiClient {
             .build()
     }
 
-    /**
-     * LLM chat can legitimately take minutes on a local 35B model (the server
-     * allows 180s per call), so it gets its own read timeout instead of the
-     * 120s used by ordinary library calls.
-     */
-    private val llmOkHttpClient: OkHttpClient by lazy {
-        okHttpClient.newBuilder()
-            .readTimeout(240, TimeUnit.SECONDS)
-            .build()
-    }
-
     private val gson by lazy {
         GsonBuilder()
             .registerTypeAdapter(
@@ -78,20 +67,6 @@ object DashboardApiClient {
             Retrofit.Builder()
                 .baseUrl(base)
                 .client(okHttpClient)
-                .addConverterFactory(GsonConverterFactory.create(gson))
-                .build()
-                .create(DashboardApiService::class.java)
-        }
-    }
-
-    /** Same contract, longer read timeout for `/api/v1/llm` chat calls. */
-    @Synchronized
-    fun llmServiceFor(serverUrl: String): DashboardApiService {
-        val base = normalizeServerUrl(serverUrl) + "/"
-        return services.getOrPut("llm|$base") {
-            Retrofit.Builder()
-                .baseUrl(base)
-                .client(llmOkHttpClient)
                 .addConverterFactory(GsonConverterFactory.create(gson))
                 .build()
                 .create(DashboardApiService::class.java)

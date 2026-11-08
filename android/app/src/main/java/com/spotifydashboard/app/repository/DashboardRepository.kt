@@ -638,9 +638,9 @@ class DashboardRepository(private val context: Context) {
 
     // -- Local LLM (Open WebUI proxy) ---------------------------------------
 
-    /** LLM calls get the longer-timeout service (local models can be slow). */
+    /** LLM calls use the standard service (no special timeout). */
     private fun llmService(): DashboardApiService =
-        DashboardApiClient.llmServiceFor(getServerUrl())
+        DashboardApiClient.serviceFor(getServerUrl())
 
     suspend fun llmStatus(): LLMStatusDto = withContext(Dispatchers.IO) {
         authedOrThrow(llmService(), "Failed to reach the LLM service") { svc, header ->
