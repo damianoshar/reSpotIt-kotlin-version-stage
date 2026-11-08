@@ -617,7 +617,7 @@ private fun SpotifyDashboardContent(
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedButton(
                         onClick = { showFollowConfirm = true },
-                        enabled = !followArtistsBusy && dataSource.mode != "remote",
+                        enabled = !followArtistsBusy,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.Favorite, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -626,7 +626,7 @@ private fun SpotifyDashboardContent(
                     }
                     Text(
                         if (dataSource.mode == "remote")
-                            "Following requires local Spotify auth/logins."
+                            "Uses the media server's linked Spotify account and your saved albums."
                         else
                             "Collects artist IDs from Liked Songs + saved albums, skips ones already followed.",
                         style = MaterialTheme.typography.bodySmall,
@@ -637,7 +637,14 @@ private fun SpotifyDashboardContent(
                         androidx.compose.material3.AlertDialog(
                             onDismissRequest = { showFollowConfirm = false },
                             title = { Text("Follow library artists?") },
-                            text = { Text("Follow all artists found in your Liked Songs and saved albums? This modifies your Spotify account and may take a while.") },
+                            text = {
+                                Text(
+                                    if (dataSource.mode == "remote")
+                                        "Follow all artists found in your saved albums on the media server's Spotify account? This may take a while."
+                                    else
+                                        "Follow all artists found in your Liked Songs and saved albums? This modifies your Spotify account and may take a while."
+                                )
+                            },
                             confirmButton = {
                                 Button(onClick = {
                                     showFollowConfirm = false

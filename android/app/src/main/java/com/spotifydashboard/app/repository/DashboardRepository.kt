@@ -264,6 +264,16 @@ class DashboardRepository(private val context: Context) {
         authed { svc, header -> svc.getFollowedArtists(header) }?.artists ?: emptyList()
     }
 
+    /**
+     * Follow artists from the signed-in account's saved Spotify albums using the
+     * media server's own Spotify link (remote-mode parity for the local tool).
+     */
+    suspend fun followLibraryArtists(): FollowArtistsResult = withContext(Dispatchers.IO) {
+        authedOrThrow("Could not follow artists on the media server") { svc, header ->
+            svc.followLibraryArtists(header)
+        }
+    }
+
     // --- Concerts (local Room) ---
 
     suspend fun upsertConcerts(concerts: List<ConcertEntity>) = withContext(Dispatchers.IO) {

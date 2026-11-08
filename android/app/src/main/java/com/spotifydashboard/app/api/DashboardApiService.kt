@@ -413,6 +413,13 @@ data class ExtractConcertsData(val concerts: List<ExtractedConcertDto> = emptyLi
 data class FollowedArtistDto(val id: String = "", val name: String = "", val image_url: String = "", val genres: List<String> = emptyList())
 data class FollowedArtistsResponse(val artists: List<FollowedArtistDto> = emptyList())
 
+// POST /api/v1/spotify/follow-artists (server-side Spotify account).
+data class FollowArtistsResult(
+    val total: Int = 0,
+    val already_followed: Int = 0,
+    val followed: Int = 0
+)
+
 data class ResolvedAlbumDto(val artist: String = "", val album: String = "", val spotify_id: String? = null, val title: String = "", val artist_name: String = "", val year: Int = 0, val image_url: String = "", val spotify_url: String = "")
 data class ResolveAlbumsResponse(val resolved: List<ResolvedAlbumDto> = emptyList(), val unresolved: List<Map<String, String>> = emptyList())
 
@@ -777,6 +784,11 @@ interface DashboardApiService {
     suspend fun getFollowedArtists(
         @Header("Authorization") auth: String
     ): Response<FollowedArtistsResponse>
+
+    @POST("api/v1/spotify/follow-artists")
+    suspend fun followLibraryArtists(
+        @Header("Authorization") auth: String
+    ): Response<FollowArtistsResult>
 
     @POST("api/v1/spotify/resolve-albums")
     suspend fun resolveAlbums(

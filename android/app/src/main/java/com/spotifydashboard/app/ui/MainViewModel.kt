@@ -3491,13 +3491,25 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
      * this scope change before use).
      */
     fun followLibraryArtists(source: String = "both", dryRun: Boolean = false) {
-        if (remoteActive()) {
-            _actionMessage.value = "Follow library artists requires local Spotify auth"
-            return
-        }
         viewModelScope.launch(Dispatchers.IO) {
             _followArtistsBusy.value = true
             try {
+                if (remoteActive()) {
+                    // The media server's linked Spotify account does the work, so
+                    // the tool needs no device Spotify login in remote mode.
+                    if (dryRun) {
+                        _actionMessage.value =
+                            "Dry run needs the local Spotify login; remote mode follows " +
+                                "directly from the server's saved albums"
+                        return@launch
+                    }
+                    val r = dashboardRepository.followLibraryArtists()
+                    _actionMessage.value =
+                        "Followed ${r.followed} of ${r.total} artists " +
+                            "(${r.already_followed} were already followed)"
+                    Log.d("MainViewModel", "Remote follow artists result=$r")
+                    return@launch
+                }
                 val result = spotifyRepository.followLibraryArtists(source, dryRun)
                 _actionMessage.value = if (dryRun) {
                     "Dry run: ${result.notFollowing} of ${result.uniqueArtists} artists would be followed"
