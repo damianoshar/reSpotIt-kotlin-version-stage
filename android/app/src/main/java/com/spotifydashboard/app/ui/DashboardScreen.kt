@@ -1622,42 +1622,6 @@ fun LibraryTab(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("View all", style = MaterialTheme.typography.bodySmall, color = SpotifyLightGray)
-            Spacer(modifier = Modifier.width(8.dp))
-            Switch(
-                checked = viewAll,
-                onCheckedChange = { checked ->
-                    if (checked && total > 200 && !viewAll) {
-                        showViewAllConfirm = true
-                    } else {
-                        onToggleViewAll()
-                    }
-                }
-            )
-        }
-
-        if (showViewAllConfirm) {
-            AlertDialog(
-                onDismissRequest = { showViewAllConfirm = false },
-                title = { Text("View all albums?") },
-                text = { Text("Loading all $total albums at once may slow down the app. Continue?") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        showViewAllConfirm = false
-                        onToggleViewAll()
-                    }) { Text("View all") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showViewAllConfirm = false }) { Text("Cancel") }
-                }
-            )
-        }
-
         when (val state = syncState) {
             is SyncState.Progress -> {
                 val pct = if (state.total > 0) (state.fetched.toFloat() / state.total * 100).toInt() else 0
