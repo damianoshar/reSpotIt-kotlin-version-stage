@@ -132,7 +132,6 @@ private fun SpotifyDashboardContent(
     isAuthenticated: Boolean,
     sharedSiteUrl: String? = null
 ) {
-) {
     if (!isAuthenticated) {
         LoginScreen(onLogin = onLogin, onConfigure = onConfigureCredentials)
         return
