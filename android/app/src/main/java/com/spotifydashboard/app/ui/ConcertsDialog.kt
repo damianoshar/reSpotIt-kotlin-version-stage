@@ -99,7 +99,11 @@ fun ConcertsDialog(
                     onValueChange = { pasteText = it },
                     label = { Text("...or paste page text") },
                     modifier = Modifier.fillMaxWidth(),
-                    minLines = 3
+                    // Bounded height: without maxLines the field grows to fit the
+                    // whole paste and pushes the dialog off-screen. With maxLines
+                    // set, Compose scrolls the text inside the field instead.
+                    minLines = 3,
+                    maxLines = 6
                 )
                 Spacer(Modifier.height(8.dp))
                 Button(
