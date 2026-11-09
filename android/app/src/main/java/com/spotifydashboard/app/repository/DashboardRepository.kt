@@ -382,20 +382,23 @@ class DashboardRepository(private val context: Context) {
 
     /**
      * Upload a text/HTML file as the scan source. The server stores the full
-     * text and extracts it in chunks, exactly like a long paste.
+     * text and extracts it in chunks, exactly like a long paste. [sourceUrl] is
+     * set for a WebView page snapshot so the scan keeps the page it came from.
      */
     suspend fun uploadConcertScan(
         fileName: String,
         bytes: ByteArray,
         mimeType: String,
+        sourceUrl: String = "",
     ): ConcertScanDto = withContext(Dispatchers.IO) {
         val part = MultipartBody.Part.createFormData(
             "file",
             fileName,
             bytes.toRequestBody(mimeType.toMediaTypeOrNull()),
         )
+        val pageUrl = sourceUrl.trim().toRequestBody("text/plain".toMediaTypeOrNull())
         authedOrThrow("Could not upload the concert scan file") { svc, header ->
-            svc.uploadConcertScan(header, part)
+            svc.uploadConcertScan(header, part, pageUrl)
         }
     }
 

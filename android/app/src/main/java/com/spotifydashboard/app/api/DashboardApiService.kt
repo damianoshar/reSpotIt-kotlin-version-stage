@@ -1,6 +1,7 @@
 package com.spotifydashboard.app.api
 
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
@@ -669,7 +670,10 @@ interface DashboardApiService {
     @POST("api/v1/concert-scans/upload")
     suspend fun uploadConcertScan(
         @Header("Authorization") auth: String,
-        @Part file: MultipartBody.Part
+        @Part file: MultipartBody.Part,
+        // The page a WebView snapshot came from. Empty for a plain file upload;
+        // the server keeps it for the scan title and never re-fetches it.
+        @Part("source_url") sourceUrl: RequestBody
     ): Response<ConcertScanDto>
 
     @GET("api/v1/concert-scans/latest")

@@ -3273,10 +3273,38 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     }
 
     /**
+     * Scan the rendered text of a page the user opened in the in-app browser.
+     *
+     * A server-side fetch cannot run the page's JavaScript, so JS-built concert
+     * listings (Bandsintown and friends) look empty there. The WebView snapshot
+     * is the text the user actually sees; the page URL is kept only for the
+     * scan title, and the server never re-fetches it.
+     */
+    fun scanConcertsFromPage(pageUrl: String, text: String) {
+        val body = text.trim()
+        if (body.isEmpty()) {
+            _concertActionMessage.value =
+                "The page had no readable text. Wait for it to finish loading, then try again."
+            return
+        }
+        uploadConcertScanFile(
+            "page-snapshot.txt",
+            body.toByteArray(Charsets.UTF_8),
+            "text/plain",
+            pageUrl.trim().takeIf { it.isNotEmpty() },
+        )
+    }
+
+    /**
      * Upload a text/HTML file as the scan source (click-and-forget, same as a
      * paste). Rejects files over the server's 5 MB cap before sending.
      */
-    fun uploadConcertScanFile(fileName: String, bytes: ByteArray, mimeType: String) {
+    fun uploadConcertScanFile(
+        fileName: String,
+        bytes: ByteArray,
+        mimeType: String,
+        sourceUrl: String? = null,
+    ) {
         if (bytes.size > MAX_SCAN_UPLOAD_BYTES) {
             _concertActionMessage.value =
                 "That file is too large (max ${MAX_SCAN_UPLOAD_BYTES / 1_000_000} MB). " +
@@ -3288,7 +3316,9 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             _concertActionMessage.value = null
             _concertScanRows.value = emptyList()
             try {
-                val started = dashboardRepository.uploadConcertScan(fileName, bytes, mimeType)
+                val started = dashboardRepository.uploadConcertScan(
+                    fileName, bytes, mimeType, sourceUrl.orEmpty(),
+                )
                 _concertScan.value = started
                 _concertActionMessage.value =
                     "Uploaded $fileName. Scanning in the background - results will be waiting when you return."

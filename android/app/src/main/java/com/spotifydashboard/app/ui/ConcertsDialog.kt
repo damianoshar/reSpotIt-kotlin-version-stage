@@ -32,6 +32,8 @@ fun ConcertsDialog(
     message: String?,
     onScan: (String?, String?) -> Unit,
     onUploadFile: (String, ByteArray, String) -> Unit,
+    // Open the in-app browser so a JS-rendered page can be snapshotted.
+    onOpenBrowser: (String?) -> Unit,
     onRefreshScan: () -> Unit,
     onToggleScanRow: (Int) -> Unit,
     onSaveScanRows: (Boolean) -> Unit,
@@ -129,6 +131,15 @@ fun ConcertsDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Attach file (.txt / .md / .html)")
+                }
+
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { onOpenBrowser(urlText.takeIf { it.isNotBlank() }) },
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open in browser and scan the page")
                 }
 
                 if (scan != null) {

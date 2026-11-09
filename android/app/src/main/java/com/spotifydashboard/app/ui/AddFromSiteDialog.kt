@@ -30,6 +30,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -67,7 +68,9 @@ fun AddFromSiteDialog(
     onPrefetch: (List<String>) -> Unit = {},
     onDismiss: () -> Unit,
     onAdd: (List<String>) -> Unit,
-    initialUrl: String? = null
+    initialUrl: String? = null,
+    // Snapshot the rendered page and hand (pageUrl, text) to the concert scan.
+    onScanConcerts: (String, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val prefs = remember {
@@ -90,6 +93,7 @@ fun AddFromSiteDialog(
     var pageError by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
     var scanProgress by remember { mutableStateOf<String?>(null) }
+    var snapshotting by remember { mutableStateOf(false) }
     val detected = remember { mutableStateListOf<String>() }
     val selected = remember { mutableStateMapOf<String, Boolean>() }
 
@@ -102,6 +106,14 @@ fun AddFromSiteDialog(
         if (scanning) {
             kotlinx.coroutines.delay(180_000)
             scanning = false
+        }
+    }
+
+    // Safety net: never leave the concert snapshot button stuck on "Reading…".
+    LaunchedEffect(snapshotting) {
+        if (snapshotting) {
+            kotlinx.coroutines.delay(30_000)
+            snapshotting = false
         }
     }
 
@@ -134,6 +146,41 @@ fun AddFromSiteDialog(
             }
         }
         return ids
+    }
+
+    // evaluateJavascript hands back a JSON-encoded string; decode the escapes
+    // (newlines, quotes) so the extractor sees real page text.
+    fun decodeJsString(value: String?): String {
+        if (value == null || value == "null") return ""
+        return try {
+            JSONArray("[$value]").getString(0)
+        } catch (_: Exception) {
+            value.trim().removeSurrounding("\"")
+        }
+    }
+
+    // Snapshot the *rendered* page. document.body.innerText is what the user
+    // sees, including rows the page built with JavaScript after load — which a
+    // server-side fetch cannot see.
+    fun snapshotForConcerts(view: WebView) {
+        val pageUrl = view.url.orEmpty()
+        val js = """
+            (function(){
+                try { return document.body ? document.body.innerText : ''; }
+                catch (e) { return ''; }
+            })()
+        """.trimIndent()
+        snapshotting = true
+        view.evaluateJavascript(js, ValueCallback { value ->
+            snapshotting = false
+            val text = decodeJsString(value)
+            if (text.length < 120) {
+                pageError = "This page has almost no readable text. Scroll it, wait for the " +
+                    "listings to load, then tap Scan concerts again."
+                return@ValueCallback
+            }
+            onScanConcerts(pageUrl, text)
+        })
     }
 
     fun extractLinks(view: WebView) {
@@ -340,6 +387,22 @@ fun AddFromSiteDialog(
                     ) {
                         Text(if (scanning) "Scanning…" else "Scan")
                     }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val wv = webView ?: return@OutlinedButton
+                        snapshotForConcerts(wv)
+                    },
+                    enabled = !snapshotting,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                ) {
+                    Text(
+                        if (snapshotting) "Reading the page…"
+                        else "Scan this page for concerts (AI)"
+                    )
                 }
 
                 AndroidView(

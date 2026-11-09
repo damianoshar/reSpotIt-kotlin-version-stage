@@ -146,6 +146,9 @@ private fun SpotifyDashboardContent(
     var showFollowConfirm by remember { mutableStateOf(false) }
     var showAddFromSite by remember { mutableStateOf(false) }
     LaunchedEffect(sharedSiteUrl) { if (sharedSiteUrl != null) showAddFromSite = true }
+    // Page to open in the in-app browser when the user taps "Open in browser
+    // and scan the page" from the concerts dialog.
+    var browserStartUrl by remember { mutableStateOf<String?>(null) }
     var showConcerts by remember { mutableStateOf(false) }
     var showAiUrlScan by remember { mutableStateOf(false) }
     var showSpotifySearchPlaylist by remember { mutableStateOf(false) }
@@ -1012,9 +1015,20 @@ private fun SpotifyDashboardContent(
             adding = addingFromSite,
             albumLabels = siteAlbumLabels,
             onPrefetch = viewModel::prefetchSiteAlbums,
-            onDismiss = { showAddFromSite = false },
+            onDismiss = {
+                showAddFromSite = false
+                browserStartUrl = null
+            },
             onAdd = viewModel::addAlbumsFromSite,
-            initialUrl = sharedSiteUrl
+            initialUrl = browserStartUrl ?: sharedSiteUrl,
+            onScanConcerts = { pageUrl, text ->
+                // The snapshot already holds the rendered page; close the browser
+                // and show the pending scan rows in the concerts dialog.
+                showAddFromSite = false
+                browserStartUrl = null
+                showConcerts = true
+                viewModel.scanConcertsFromPage(pageUrl, text)
+            }
         )
     }
 
@@ -1027,6 +1041,11 @@ private fun SpotifyDashboardContent(
             message = viewModel.concertActionMessage.collectAsState().value,
             onScan = { url, text -> viewModel.scanConcerts(url, text) },
             onUploadFile = { name, bytes, mime -> viewModel.uploadConcertScanFile(name, bytes, mime) },
+            onOpenBrowser = { pageUrl ->
+                browserStartUrl = pageUrl
+                showConcerts = false
+                showAddFromSite = true
+            },
             onRefreshScan = viewModel::refreshConcertScan,
             onToggleScanRow = viewModel::toggleConcertScanRow,
             onSaveScanRows = viewModel::saveConcertScanRows,
