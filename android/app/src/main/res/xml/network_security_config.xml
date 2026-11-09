@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
   <!-- The native app talks to the owner's self-hosted backend over HTTPS on the
-       LAN (https://192.168.1.11), plus the emulator loopback. The server's
-       self-signed certificate is bundled at res/raw/respotit_server_cert.pem and
-       trusted directly, so the app works without installing a user CA on the
-       device. A user-installed CA is still trusted if present. -->
+       LAN (https://192.168.1.11), plus the emulator loopback. The system and
+       user CA stores are trusted, so a user-installed local CA (mkcert) works.
+       For zero-touch installs, see src/personal/res/ (gitignored): it overlays
+       a trust anchor for the bundled local CA. -->
   <base-config cleartextTrafficPermitted="true">
     <trust-anchors>
       <certificates src="system" />
       <certificates src="user" />
-      <certificates src="@raw/respotit_server_cert" />
     </trust-anchors>
   </base-config>
   <domain-config cleartextTrafficPermitted="true">
