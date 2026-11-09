@@ -3404,8 +3404,9 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
             "Scan ready: ${items.size} concert(s). Matching your followed artists..."
 
         val resolved = try {
-            // Never let a slow Spotify lookup hide the results.
-            withTimeoutOrNull(30_000) {
+            // The server answers in a few seconds now; the old 30s cap silently
+            // returned an empty list (0 followed) whenever resolution was slow.
+            withTimeoutOrNull(120_000) {
                 dashboardRepository.resolveArtists(items.map { it.artist }.distinct())?.resolved
                     ?: emptyList()
             } ?: emptyList()
@@ -3415,10 +3416,18 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
         val resolvedByName = resolved.associateBy { it.name.lowercase() }
         val rows = items.map { c ->
-            val match = resolvedByName[c.artist.lowercase()]
-                ?: resolved.firstOrNull {
-                    it.name.equals(c.artist, true) || it.matched_name.equals(c.artist, true)
-                }
+            val needle = c.artist.lowercase()
+            // Exact name first, then the same loose match the React dialog uses
+            // so a trailing "Official"/case difference still correlates.
+            val match = resolvedByName[needle] ?: resolved.firstOrNull { r ->
+                val rn = r.name.lowercase()
+                val mn = r.matched_name.lowercase()
+                rn == needle || mn == needle ||
+                    (needle.isNotEmpty() && rn.isNotEmpty() &&
+                        (rn.contains(needle) || needle.contains(rn))) ||
+                    (needle.isNotEmpty() && mn.isNotEmpty() &&
+                        (mn.contains(needle) || needle.contains(mn)))
+            }
             rowFor(c, match)
         }
         _concertScanRows.value = rows
