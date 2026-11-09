@@ -19,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.spotifydashboard.app.data.ConcertEntity
 import com.spotifydashboard.app.api.ConcertScanDto
+import com.spotifydashboard.app.utils.LinkHistoryStore
+import com.spotifydashboard.app.utils.LinkTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +51,7 @@ fun ConcertsDialog(
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val linkStore = remember { LinkHistoryStore(context) }
 
     // Read the chosen document's name, MIME and bytes, then hand it to the
     // ViewModel which uploads it as the scan source (click-and-forget).
@@ -114,8 +117,28 @@ fun ConcertsDialog(
                     maxLines = 6
                 )
                 Spacer(Modifier.height(8.dp))
+                LinkHistoryRow(
+                    kind = "concerts",
+                    value = urlText.trim().ifEmpty { pasteText },
+                    target = if (urlText.isNotBlank()) LinkTarget.URL else LinkTarget.TEXT,
+                    onPick = { picked, pickedTarget ->
+                        if (pickedTarget == LinkTarget.URL) {
+                            urlText = picked; pasteText = ""
+                        } else {
+                            pasteText = picked; urlText = ""
+                        }
+                    },
+                    enabled = !loading,
+                )
+                Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = { onScan(urlText.takeIf { it.isNotBlank() }, pasteText.takeIf { it.isNotBlank() }) },
+                    onClick = {
+                        val url = urlText.takeIf { it.isNotBlank() }
+                        val paste = pasteText.takeIf { it.isNotBlank() }
+                        if (url != null) linkStore.recordRecent("concerts", url, LinkTarget.URL)
+                        else if (paste != null) linkStore.recordRecent("concerts", paste, LinkTarget.TEXT)
+                        onScan(url, paste)
+                    },
                     enabled = !loading && (urlText.isNotBlank() || pasteText.isNotBlank()),
                     modifier = Modifier.fillMaxWidth()
                 ) {

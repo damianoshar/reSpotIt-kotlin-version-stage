@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.spotifydashboard.app.utils.LinkHistoryStore
+import com.spotifydashboard.app.utils.LinkTarget
 import org.json.JSONArray
 
 /**
@@ -76,6 +78,7 @@ fun AddFromSiteDialog(
     val prefs = remember {
         context.getSharedPreferences("add_from_site_prefs", Context.MODE_PRIVATE)
     }
+    val linkStore = remember { LinkHistoryStore(context) }
     var urlText by remember {
         mutableStateOf(initialUrl ?: prefs.getString("last_url", null) ?: "https://open.spotify.com")
     }
@@ -371,6 +374,7 @@ fun AddFromSiteDialog(
                     Button(onClick = {
                         val url = normalize(urlText)
                         prefs.edit().putString("last_url", url).apply()
+                        linkStore.recordRecent("site", url, LinkTarget.URL)
                         webView?.loadUrl(url)
                     }) {
                         Text("Go")
@@ -388,6 +392,15 @@ fun AddFromSiteDialog(
                         Text(if (scanning) "Scanning…" else "Scan")
                     }
                 }
+
+                LinkHistoryRow(
+                    kind = "site",
+                    value = urlText,
+                    target = LinkTarget.URL,
+                    accept = listOf(LinkTarget.URL),
+                    onPick = { picked, _ -> urlText = picked },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
 
                 OutlinedButton(
                     onClick = {

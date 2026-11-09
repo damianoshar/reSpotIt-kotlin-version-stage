@@ -8,7 +8,10 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.spotifydashboard.app.utils.LinkHistoryStore
+import com.spotifydashboard.app.utils.LinkTarget
 
 @Composable
 fun AiUrlScanDialog(
@@ -19,6 +22,8 @@ fun AiUrlScanDialog(
 ) {
     var urlText by remember { mutableStateOf("") }
     var pasteText by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val linkStore = remember { LinkHistoryStore(context) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -51,8 +56,28 @@ fun AiUrlScanDialog(
                     minLines = 3
                 )
                 Spacer(Modifier.height(8.dp))
+                LinkHistoryRow(
+                    kind = "albums",
+                    value = urlText.trim().ifEmpty { pasteText },
+                    target = if (urlText.isNotBlank()) LinkTarget.URL else LinkTarget.TEXT,
+                    onPick = { picked, pickedTarget ->
+                        if (pickedTarget == LinkTarget.URL) {
+                            urlText = picked; pasteText = ""
+                        } else {
+                            pasteText = picked; urlText = ""
+                        }
+                    },
+                    enabled = !loading,
+                )
+                Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = { onScan(urlText.takeIf { it.isNotBlank() }, pasteText.takeIf { it.isNotBlank() }) },
+                    onClick = {
+                        val url = urlText.takeIf { it.isNotBlank() }
+                        val paste = pasteText.takeIf { it.isNotBlank() }
+                        if (url != null) linkStore.recordRecent("albums", url, LinkTarget.URL)
+                        else if (paste != null) linkStore.recordRecent("albums", paste, LinkTarget.TEXT)
+                        onScan(url, paste)
+                    },
                     enabled = !loading && (urlText.isNotBlank() || pasteText.isNotBlank()),
                     modifier = Modifier.fillMaxWidth()
                 ) {
