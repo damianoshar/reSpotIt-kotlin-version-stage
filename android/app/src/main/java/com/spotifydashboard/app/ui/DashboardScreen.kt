@@ -1028,6 +1028,14 @@ private fun SpotifyDashboardContent(
                 browserStartUrl = null
                 showConcerts = true
                 viewModel.scanConcertsFromPage(pageUrl, text)
+            },
+            onScanAlbums = { _, text ->
+                // Same rendered-page capture for album listings: close the
+                // browser and run the existing AI album scan on the snapshot.
+                showAddFromSite = false
+                browserStartUrl = null
+                showAiUrlScan = true
+                viewModel.scanAlbumsUrl(text = text)
             }
         )
     }

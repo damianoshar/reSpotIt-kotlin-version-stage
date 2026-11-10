@@ -71,8 +71,9 @@ fun AddFromSiteDialog(
     onDismiss: () -> Unit,
     onAdd: (List<String>) -> Unit,
     initialUrl: String? = null,
-    // Snapshot the rendered page and hand (pageUrl, text) to the concert scan.
-    onScanConcerts: (String, String) -> Unit = { _, _ -> }
+    // Snapshot the rendered page and hand (pageUrl, text) to the AI scanner.
+    onScanConcerts: (String, String) -> Unit = { _, _ -> },
+    onScanAlbums: (String, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val prefs = remember {
@@ -164,8 +165,8 @@ fun AddFromSiteDialog(
 
     // Snapshot the *rendered* page. document.body.innerText is what the user
     // sees, including rows the page built with JavaScript after load — which a
-    // server-side fetch cannot see.
-    fun snapshotForConcerts(view: WebView) {
+    // server-side fetch cannot see. Shared by the concert and album scanners.
+    fun snapshotPage(view: WebView, onReady: (String, String) -> Unit) {
         val pageUrl = view.url.orEmpty()
         val js = """
             (function(){
@@ -179,10 +180,10 @@ fun AddFromSiteDialog(
             val text = decodeJsString(value)
             if (text.length < 120) {
                 pageError = "This page has almost no readable text. Scroll it, wait for the " +
-                    "listings to load, then tap Scan concerts again."
+                    "page to load, then tap the scan button again."
                 return@ValueCallback
             }
-            onScanConcerts(pageUrl, text)
+            onReady(pageUrl, text)
         })
     }
 
@@ -405,7 +406,7 @@ fun AddFromSiteDialog(
                 OutlinedButton(
                     onClick = {
                         val wv = webView ?: return@OutlinedButton
-                        snapshotForConcerts(wv)
+                        snapshotPage(wv, onScanConcerts)
                     },
                     enabled = !snapshotting,
                     modifier = Modifier
@@ -415,6 +416,27 @@ fun AddFromSiteDialog(
                     Text(
                         if (snapshotting) "Reading the page…"
                         else "Scan this page for concerts (AI)"
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val wv = webView ?: return@OutlinedButton
+                        snapshotPage(wv) { pageUrl, text ->
+                            if (pageUrl.isNotBlank()) {
+                                linkStore.recordRecent("albums", pageUrl, LinkTarget.URL)
+                            }
+                            onScanAlbums(pageUrl, text)
+                        }
+                    },
+                    enabled = !snapshotting,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                ) {
+                    Text(
+                        if (snapshotting) "Reading the page…"
+                        else "Scan this page for albums (AI)"
                     )
                 }
 
