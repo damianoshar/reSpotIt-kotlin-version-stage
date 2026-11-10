@@ -51,6 +51,23 @@ fun AiUrlScanDialog(
                     singleLine = true
                 )
                 Spacer(Modifier.height(8.dp))
+                // Keep the browser entry point next to the URL it acts on: the
+                // dialog body scrolls, so an action at the bottom can be hidden
+                // below the fold on a phone.
+                OutlinedButton(
+                    onClick = {
+                        val url = urlText.trim()
+                        if (url.isNotEmpty()) {
+                            linkStore.recordRecent("albums", url, LinkTarget.URL)
+                            onOpenBrowser(url)
+                        }
+                    },
+                    enabled = !loading && urlText.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open in browser and scan")
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = pasteText,
                     onValueChange = { pasteText = it },
@@ -72,38 +89,24 @@ fun AiUrlScanDialog(
                     },
                     enabled = !loading,
                 )
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = {
-                        val url = urlText.trim()
-                        if (url.isNotEmpty()) {
-                            linkStore.recordRecent("albums", url, LinkTarget.URL)
-                            onOpenBrowser(url)
-                        }
-                    },
-                    enabled = !loading && urlText.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Open in browser and scan")
-                }
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = {
-                        val url = urlText.takeIf { it.isNotBlank() }
-                        val paste = pasteText.takeIf { it.isNotBlank() }
-                        if (url != null) linkStore.recordRecent("albums", url, LinkTarget.URL)
-                        else if (paste != null) linkStore.recordRecent("albums", paste, LinkTarget.TEXT)
-                        onScan(url, paste)
-                    },
-                    enabled = !loading && (urlText.isNotBlank() || pasteText.isNotBlank()),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    else Text("Scan with AI")
-                }
             }
         },
         confirmButton = {
+            Button(
+                onClick = {
+                    val url = urlText.takeIf { it.isNotBlank() }
+                    val paste = pasteText.takeIf { it.isNotBlank() }
+                    if (url != null) linkStore.recordRecent("albums", url, LinkTarget.URL)
+                    else if (paste != null) linkStore.recordRecent("albums", paste, LinkTarget.TEXT)
+                    onScan(url, paste)
+                },
+                enabled = !loading && (urlText.isNotBlank() || pasteText.isNotBlank())
+            ) {
+                if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text("Scan with AI")
+            }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) { Text("Close") }
         }
     )
