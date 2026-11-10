@@ -151,6 +151,12 @@ private fun SpotifyDashboardContent(
     var browserStartUrl by remember { mutableStateOf<String?>(null) }
     var showConcerts by remember { mutableStateOf(false) }
     var showAiUrlScan by remember { mutableStateOf(false) }
+    // Keeps the album scan URL across the browser round-trip (the dialog is
+    // removed from composition while the WebView is open).
+    var albumScanUrl by remember { mutableStateOf("") }
+    // True while the in-app browser was opened from the album AI dialog, so
+    // closing the browser returns to that dialog (React behaves the same way).
+    var browserFromAlbumScan by remember { mutableStateOf(false) }
     var showSpotifySearchPlaylist by remember { mutableStateOf(false) }
     var showArtistDiscographyPlaylist by remember { mutableStateOf(false) }
     var showRetentionDialog by remember { mutableStateOf(false) }
@@ -1018,6 +1024,10 @@ private fun SpotifyDashboardContent(
             onDismiss = {
                 showAddFromSite = false
                 browserStartUrl = null
+                if (browserFromAlbumScan) {
+                    browserFromAlbumScan = false
+                    showAiUrlScan = true
+                }
             },
             onAdd = viewModel::addAlbumsFromSite,
             initialUrl = browserStartUrl ?: sharedSiteUrl,
@@ -1026,14 +1036,17 @@ private fun SpotifyDashboardContent(
                 // and show the pending scan rows in the concerts dialog.
                 showAddFromSite = false
                 browserStartUrl = null
+                browserFromAlbumScan = false
                 showConcerts = true
                 viewModel.scanConcertsFromPage(pageUrl, text)
             },
-            onScanAlbums = { _, text ->
+            onScanAlbums = { pageUrl, text ->
                 // Same rendered-page capture for album listings: close the
                 // browser and run the existing AI album scan on the snapshot.
                 showAddFromSite = false
                 browserStartUrl = null
+                browserFromAlbumScan = false
+                albumScanUrl = pageUrl
                 showAiUrlScan = true
                 viewModel.scanAlbumsUrl(text = text)
             }
@@ -1069,7 +1082,19 @@ private fun SpotifyDashboardContent(
             loading = viewModel.aiUrlScanLoading.collectAsState().value,
             message = viewModel.actionMessage.collectAsState().value,
             onScan = { url, text -> viewModel.scanAlbumsUrl(url, text) },
-            onDismiss = { showAiUrlScan = false },
+            onOpenBrowser = { pageUrl ->
+                browserFromAlbumScan = true
+                albumScanUrl = pageUrl
+                browserStartUrl = pageUrl
+                showAiUrlScan = false
+                showAddFromSite = true
+            },
+            initialUrl = albumScanUrl,
+            onUrlChange = { albumScanUrl = it },
+            onDismiss = {
+                showAiUrlScan = false
+                browserFromAlbumScan = false
+            },
         )
     }
 

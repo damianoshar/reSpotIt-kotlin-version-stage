@@ -18,9 +18,12 @@ fun AiUrlScanDialog(
     loading: Boolean,
     message: String?,
     onScan: (String?, String?) -> Unit,
+    onOpenBrowser: (String) -> Unit = {},
+    initialUrl: String = "",
+    onUrlChange: (String) -> Unit = {},
     onDismiss: () -> Unit
 ) {
-    var urlText by remember { mutableStateOf("") }
+    var urlText by remember { mutableStateOf(initialUrl) }
     var pasteText by remember { mutableStateOf("") }
     val context = LocalContext.current
     val linkStore = remember { LinkHistoryStore(context) }
@@ -42,7 +45,7 @@ fun AiUrlScanDialog(
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = urlText,
-                    onValueChange = { urlText = it },
+                    onValueChange = { urlText = it; onUrlChange(it) },
                     label = { Text("Page URL") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -69,6 +72,20 @@ fun AiUrlScanDialog(
                     },
                     enabled = !loading,
                 )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        val url = urlText.trim()
+                        if (url.isNotEmpty()) {
+                            linkStore.recordRecent("albums", url, LinkTarget.URL)
+                            onOpenBrowser(url)
+                        }
+                    },
+                    enabled = !loading && urlText.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open in browser and scan")
+                }
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
