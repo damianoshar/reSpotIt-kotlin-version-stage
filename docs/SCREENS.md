@@ -42,8 +42,16 @@ Bottom sheet for one album: cover, artist, year and track count.
 
 * **Queue** and **Add to playlist** for the whole album.
 * Local queue options: **Queue playlist**, **Add album to end**, **Queue next**.
-* The track list shows the title, artist and play time; a track can be queued
-  with the button on the right.
+* The track list shows the title, artist, play time, and playlist position (when
+  opened from a playlist). Each track shows two stacked action rows:
+  - **Local queue row** (on-device queue or local queue playlist): **Next** (queue
+    next), **+** (add to end); in playlist context also **Pos** (play from
+    playlist position, on-device only).
+  - **Spotify row**: **Play** (play on Spotify), **Next** (queue on Spotify);
+    in playlist context also **Remove** (remove from playlist).
+* The redundant per-track local **Play** button is removed in the album context
+  (the playlist **Pos** button covers that intent for on-device playback).
+* Above the track list a two-card legend explains both action rows.
 
 ## 4. Playlists
 
