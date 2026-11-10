@@ -45,6 +45,17 @@ object DashboardApiClient {
             .build()
     }
 
+    /**
+     * LLM extraction runs synchronously on the server and can take minutes for
+     * a long page (chunked map-reduce). The normal 120s read timeout would
+     * abort a valid scan, so LLM calls get a 15-minute read window.
+     */
+    private val llmOkHttpClient: OkHttpClient by lazy {
+        okHttpClient.newBuilder()
+            .readTimeout(15, TimeUnit.MINUTES)
+            .build()
+    }
+
     private val gson by lazy {
         GsonBuilder()
             .registerTypeAdapter(
@@ -59,6 +70,7 @@ object DashboardApiClient {
     }
 
     private val services = mutableMapOf<String, DashboardApiService>()
+    private val llmServices = mutableMapOf<String, DashboardApiService>()
 
     @Synchronized
     fun serviceFor(serverUrl: String): DashboardApiService {
@@ -67,6 +79,20 @@ object DashboardApiClient {
             Retrofit.Builder()
                 .baseUrl(base)
                 .client(okHttpClient)
+                .addConverterFactory(GsonConverterFactory.create(gson))
+                .build()
+                .create(DashboardApiService::class.java)
+        }
+    }
+
+    /** Same API, but with the long read timeout the LLM endpoints need. */
+    @Synchronized
+    fun llmServiceFor(serverUrl: String): DashboardApiService {
+        val base = normalizeServerUrl(serverUrl) + "/"
+        return llmServices.getOrPut(base) {
+            Retrofit.Builder()
+                .baseUrl(base)
+                .client(llmOkHttpClient)
                 .addConverterFactory(GsonConverterFactory.create(gson))
                 .build()
                 .create(DashboardApiService::class.java)
