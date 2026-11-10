@@ -442,6 +442,31 @@ class SpotifyRepository(
         }
     }
 
+    /**
+     * Start playback of a single track on the active Spotify device.
+     * Used by the album/playlist track sheet's "Spotify" column.
+     */
+    suspend fun playTrackAsContext(
+        trackUri: String,
+        deviceId: String?,
+    ) = withContext(Dispatchers.IO) {
+        val token = authManager.getValidAccessToken() ?: throw Exception("Authentication required")
+        val resp = apiService.play(
+            "Bearer $token",
+            deviceId,
+            PlayRequest(context_uri = trackUri),
+        )
+        if (!resp.isSuccessful) {
+            throw Exception(
+                when (resp.code()) {
+                    403 -> "Premium required or no active device"
+                    404 -> "No active device found - open Spotify on a device first"
+                    else -> "Spotify could not start playback (HTTP ${resp.code()})"
+                }
+            )
+        }
+    }
+
     suspend fun getStats(): LibraryStats? = withContext(Dispatchers.IO) {
         try {
             LibraryStats(

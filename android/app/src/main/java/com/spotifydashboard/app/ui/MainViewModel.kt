@@ -1332,6 +1332,114 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
+    /**
+     * Play one track on the active Spotify device ("Spotify" column of the
+     * album/playlist track sheet).
+     */
+    fun playTrackOnSpotify(uri: String) {
+        if (uri.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val device = pickPlaybackDevice(spotifyRepository.getDevices())
+                spotifyRepository.playTrackAsContext(uri, device?.id)
+                _actionMessage.value = "Playing on Spotify"
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Play track on Spotify failed", e)
+                _actionMessage.value = "Play failed: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Add one track to the local queue playlist. [insertNext] puts it right
+     * after the current local position, otherwise it is appended at the end.
+     * This is the fallback for the track rows when on-device playback is off.
+     */
+    fun queueTrackInLocalQueuePlaylist(uri: String, insertNext: Boolean) {
+        if (uri.isBlank()) return
+        val active = _localQueuePlaylist.value ?: playlistRepository.localQueuePlaylist()
+        if (active == null || active.playlistId.isBlank()) {
+            _actionMessage.value = if (insertNext) {
+                "Create a local queue playlist first, then queue tracks next."
+            } else {
+                "Create a local queue playlist first."
+            }
+            return
+        }
+        if (_localQueueBusy.value) return
+        viewModelScope.launch {
+            _localQueueBusy.value = true
+            try {
+                val activeUris = runCatching {
+                    playlistRepository.getPlaylistTrackUris(active.playlistId)
+                }.getOrElse { active.uris }.ifEmpty { active.uris }
+                val current = runCatching { spotifyRepository.getCurrentPlayback() }.getOrNull()
+                val ownContext = current?.context?.uri == "spotify:playlist:${active.playlistId}"
+                val currentUri = current?.item?.uri
+                val liveIndex = if (ownContext) {
+                    resolveLocalQueueIndex(active.copy(uris = activeUris), currentUri)
+                } else {
+                    -1
+                }
+                val anchorIndex = if (insertNext) {
+                    when {
+                        liveIndex >= 0 -> liveIndex
+                        localCursorPlaylistId == active.playlistId &&
+                            localCursorIndex in activeUris.indices -> localCursorIndex
+                        activeUris.isEmpty() -> 0
+                        else -> -1
+                    }
+                } else {
+                    liveIndex
+                }
+                if (insertNext && anchorIndex < 0) {
+                    _actionMessage.value =
+                        "Start playback from the local queue first so the app knows the current position."
+                    return@launch
+                }
+                val insertAt = if (insertNext) {
+                    (anchorIndex + 1).coerceIn(0, activeUris.size)
+                } else {
+                    -1
+                }
+                if (insertNext) {
+                    playlistRepository.insertTrackUrisToPlaylist(
+                        active.playlistId,
+                        listOf(uri),
+                        insertAt,
+                    )
+                } else {
+                    playlistRepository.addTrackUrisToPlaylist(active.playlistId, listOf(uri))
+                }
+                val fallback = if (insertNext) {
+                    activeUris.toMutableList().apply { add(insertAt, uri) }
+                } else {
+                    activeUris + uri
+                }
+                val updated = runCatching {
+                    playlistRepository.getPlaylistTrackUris(active.playlistId)
+                }.getOrElse { fallback }.ifEmpty { fallback }
+                playlistRepository.setLocalQueuePlaylist(active.playlistId, active.name, updated)
+                _localQueuePlaylist.value = QueuePlaylistRef(active.playlistId, active.name, updated)
+                _localQueueStatus.value = "Local queue: ${updated.size} tracks · 1 added"
+                _actionMessage.value = if (insertNext) {
+                    "Queued 1 track next in \"${active.name}\"."
+                } else {
+                    "Added 1 track to the end of \"${active.name}\"."
+                }
+                refreshPlayback()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Queue track in local queue failed", e)
+                _actionMessage.value = playlistActionError(
+                    if (insertNext) "Queue next failed" else "Add to local queue failed",
+                    e,
+                )
+            } finally {
+                _localQueueBusy.value = false
+            }
+        }
+    }
+
     /** Open the playlist picker for one album shown in the album sheet. */
     fun requestAddAlbumToPlaylist(albumId: String) {
         _selectedAlbums.value = setOf(albumId)

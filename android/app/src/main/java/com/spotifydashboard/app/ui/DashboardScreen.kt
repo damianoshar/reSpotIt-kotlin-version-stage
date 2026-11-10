@@ -894,8 +894,12 @@ private fun SpotifyDashboardContent(
             localPlaybackEnabled = localPlayback.enabled,
             onPlayAlbum = { viewModel.playAlbumLocally() },
             onPlayTrack = { uri -> viewModel.playTrackLocally(uri) },
+            onPlayTrackOnSpotify = { uri -> viewModel.playTrackOnSpotify(uri) },
             onLocalQueueNextTrack = { uri -> viewModel.enqueueTrackLocally(uri, next = true) },
             onLocalQueueEndTrack = { uri -> viewModel.enqueueTrackLocally(uri, next = false) },
+            onLocalQueuePlaylistTrack = { uri, insertNext ->
+                viewModel.queueTrackInLocalQueuePlaylist(uri, insertNext)
+            },
             onLocalQueueAlbumNext = viewModel::enqueueAlbumLocallyNext,
             hasLocalQueue = localQueuePlaylist != null,
             localQueueBusy = localQueueBusy,
@@ -4800,6 +4804,36 @@ private fun formatTrackDuration(ms: Long?): String? {
     return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }
 
+/**
+ * Small explanatory card that heads one column of the track-row buttons.
+ * It spells out what every button of that column does.
+ */
+@Composable
+private fun TrackColumnLegend(
+    title: String,
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .background(Color(0xFF202020), RoundedCornerShape(6.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = SpotifyGreen
+        )
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = SpotifyLightGray
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumTrackSheet(
@@ -4814,8 +4848,10 @@ fun AlbumTrackSheet(
     localPlaybackEnabled: Boolean = false,
     onPlayAlbum: () -> Unit = {},
     onPlayTrack: (String) -> Unit = {},
+    onPlayTrackOnSpotify: (String) -> Unit = {},
     onLocalQueueNextTrack: (String) -> Unit = {},
     onLocalQueueEndTrack: (String) -> Unit = {},
+    onLocalQueuePlaylistTrack: (String, Boolean) -> Unit = { _, _ -> },
     onLocalQueueAlbumNext: () -> Unit = {},
     hasLocalQueue: Boolean,
     localQueueBusy: Boolean,
@@ -4828,6 +4864,23 @@ fun AlbumTrackSheet(
 
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // Explanatory header for the two button columns of every track row.
+    val localQueueLegend = buildString {
+        if (localPlaybackEnabled) {
+            append("Next = play next in the local queue · + = add to the end")
+            if (sheet.playlistId != null) {
+                append(" · Pos = play from the playlist position")
+            }
+        } else {
+            append("Next = queue next in the local queue playlist · + = add to the end")
+        }
+    }
+    val spotifyLegend = buildString {
+        append("Play = play on Spotify · Next = queue on Spotify")
+        if (sheet.playlistId != null) {
+            append(" · Remove = remove from the playlist")
+        }
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -4990,6 +5043,23 @@ fun AlbumTrackSheet(
                 ) { Text("Reset Queue Playlist") }
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TrackColumnLegend(
+                    title = "Local queue",
+                    text = localQueueLegend,
+                    modifier = Modifier.weight(1f)
+                )
+                TrackColumnLegend(
+                    title = "Spotify",
+                    text = spotifyLegend,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
             when {
                 sheet.loading -> Box(
@@ -5045,46 +5115,84 @@ fun AlbumTrackSheet(
                                     maxLines = 1
                                 )
                             }
-                            if (localPlaybackEnabled && track.uri.isNotBlank()) {
-                                IconButton(onClick = { onPlayTrack(track.uri) }) {
-                                    Icon(
-                                        Icons.Default.PlayArrow,
-                                        contentDescription = "Play this track",
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                            Column(horizontalAlignment = Alignment.End) {
+                                // Local queue column: next, add to end, and (in a
+                                // playlist) play from this track's position.
+                                Row {
+                                    if (track.uri.isNotBlank()) {
+                                        IconButton(
+                                            onClick = {
+                                                if (localPlaybackEnabled) {
+                                                    onLocalQueueNextTrack(track.uri)
+                                                } else {
+                                                    onLocalQueuePlaylistTrack(track.uri, true)
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Default.QueueMusic,
+                                                contentDescription = "Queue next in the local queue",
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                if (localPlaybackEnabled) {
+                                                    onLocalQueueEndTrack(track.uri)
+                                                } else {
+                                                    onLocalQueuePlaylistTrack(track.uri, false)
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Add,
+                                                contentDescription = "Add to the end of the local queue",
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    if (sheet.playlistId != null &&
+                                        localPlaybackEnabled &&
+                                        track.uri.isNotBlank()
+                                    ) {
+                                        IconButton(onClick = { onPlayTrack(track.uri) }) {
+                                            Icon(
+                                                Icons.Default.PlaylistPlay,
+                                                contentDescription = "Play from this track's position in the playlist",
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
                                 }
-                                IconButton(onClick = { onLocalQueueNextTrack(track.uri) }) {
-                                    Icon(
-                                        Icons.Default.QueueMusic,
-                                        contentDescription = "Queue next locally",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                IconButton(onClick = { onLocalQueueEndTrack(track.uri) }) {
-                                    Icon(
-                                        Icons.Default.Add,
-                                        contentDescription = "Add to end locally",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                            if (track.uri.isNotBlank()) {
-                                IconButton(onClick = { onQueueTrack(track.uri) }) {
-                                    Icon(
-                                        Icons.Default.QueueMusic,
-                                        contentDescription = "Queue this track",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                            if (sheet.playlistId != null) {
-                                IconButton(onClick = { onRemoveTrack(track.uri) }) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Remove track",
-                                        tint = SpotifyRed,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                // Spotify column: play now, queue on Spotify and
+                                // (in a playlist) remove the track.
+                                Row {
+                                    if (track.uri.isNotBlank()) {
+                                        IconButton(onClick = { onPlayTrackOnSpotify(track.uri) }) {
+                                            Icon(
+                                                Icons.Default.PlayArrow,
+                                                contentDescription = "Play on Spotify",
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        IconButton(onClick = { onQueueTrack(track.uri) }) {
+                                            Icon(
+                                                Icons.Default.QueueMusic,
+                                                contentDescription = "Queue on Spotify",
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    if (sheet.playlistId != null) {
+                                        IconButton(onClick = { onRemoveTrack(track.uri) }) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Remove from the playlist",
+                                                tint = SpotifyRed,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
