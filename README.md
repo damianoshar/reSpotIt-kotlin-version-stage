@@ -163,7 +163,7 @@ Native module (outside `android/`): `audio-librespot/` — Rust librespot core +
 |---|---|
 | **Library** | Album grid/list/compact views, search, rich filters (artist, title, year, genre, date added), sort, selection toolbar, album track sheet, stats bar |
 | **Playlists** | Create/edit/delete Spotify playlists, add or remove albums, reorder, visibility toggle, playlist expiry (retention), local queue playlist |
-| **Tools** | Stats, Add from site, Scan page with AI (albums), Concerts calendar, AI assistant, Playlist from Spotify search, Artist discography playlist, Find duplicate albums, Follow library artists |
+| **Tools** | Stats, Add from site, Scan page with AI (albums), Concerts calendar (month grid with day markers, day filter and card list; a Scan page tab holds the AI scan), AI assistant, Playlist from Spotify search, Artist discography playlist, Find duplicate albums, Follow library artists |
 | **Settings** | Media-server mode (server URL, sign-in, sync, push/pull), backup (auto-backup + subfolder), album grid size, sync photos, autohide bottom nav / search bar, CSV import & export, hidden (duplicate) albums, retention, sign out |
 | **Player** | Now playing, queue, Web Playback SDK surfaces, experimental on-device librespot player |
 

@@ -63,6 +63,7 @@ import com.spotifydashboard.app.playback.LocalPlaybackState
 import com.spotifydashboard.app.data.AlbumEntity
 import com.spotifydashboard.app.data.ViewMode
 import com.spotifydashboard.app.utils.PlaylistListOptions
+import com.spotifydashboard.app.utils.ConcertCalendarDates
 import com.spotifydashboard.app.data.FilterState
 import com.spotifydashboard.app.data.PlaylistAlbumEntity
 import com.spotifydashboard.app.repository.BackupSettings
@@ -150,6 +151,11 @@ private fun SpotifyDashboardContent(
     // and scan the page" from the concerts dialog.
     var browserStartUrl by remember { mutableStateOf<String?>(null) }
     var showConcerts by remember { mutableStateOf(false) }
+    // Concert calendar view state. It lives here, not inside the dialog, so
+    // the month and the selected day survive closing and reopening the sheet
+    // (the React client keeps the same behaviour).
+    var concertCalendarMonth by remember { mutableStateOf(ConcertCalendarDates.Month.current()) }
+    var concertCalendarDate by remember { mutableStateOf<String?>(null) }
     var showAiUrlScan by remember { mutableStateOf(false) }
     // Keeps the album scan URL across the browser round-trip (the dialog is
     // removed from composition while the WebView is open).
@@ -1073,6 +1079,10 @@ private fun SpotifyDashboardContent(
             onClearScanRows = viewModel::clearConcertScanRows,
             onDelete = viewModel::deleteConcert,
             onClear = viewModel::clearConcerts,
+            calendarMonth = concertCalendarMonth,
+            calendarSelectedDate = concertCalendarDate,
+            onCalendarMonthChange = { concertCalendarMonth = it },
+            onCalendarDateChange = { concertCalendarDate = it },
             onDismiss = { showConcerts = false },
         )
     }
