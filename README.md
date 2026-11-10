@@ -272,6 +272,15 @@ CI (`.github/workflows/`):
 
 ---
 
+## 📸 Screens
+
+Every screen of the app, captured from a real device with the release build:
+**[docs/SCREENS.md](docs/SCREENS.md)** — library, filters, album track sheet,
+playlists, tools, the concert calendar, the AI scans, the in-app browser,
+settings and the player.
+
+---
+
 ## 🏷️ Versioning & changelog
 
 - Release tags in this repo: `0.1.0`, `v0.1.0`, `v0.1.1`, `v1.0.0`, `v1.1.0`.
@@ -291,7 +300,8 @@ android/                  ← the Gradle project (tracked, 124 files)
 audio-librespot/          ← Rust librespot core + Kotlin JNI bridge (module :audio-librespot)
 android-patches/         ← reference copies of the manifest/MainActivity/network config
 public/, index.html       ← web landing page (not part of the app build)
-docs/                    ← landing-page assets
+docs/                    ← landing-page assets + SCREENS.md (screen guide with screenshots)
+docs/screenshots/        ← device screenshots used by the screen guide
 ```
 
 > **Legacy leftovers:** `package.json`, `capacitor.config.json`, `vite.config.ts`, `tsconfig.json` and `android/app/src/main/assets/public/` came from the earlier Capacitor prototype. This app is fully native — the app does **not** load a WebView bundle, and those files are not part of the Gradle build.
