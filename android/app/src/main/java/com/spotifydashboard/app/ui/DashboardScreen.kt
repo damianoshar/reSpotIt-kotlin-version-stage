@@ -1124,9 +1124,12 @@ private fun SpotifyDashboardContent(
             onAddToPlaylist = { albumIds, playlistId, newName ->
                 viewModel.addFoundAlbumsToPlaylist(albumIds, playlistId, newName)
             },
+            onAddToLibrary = { viewModel.saveScannedAlbumsToLibrary() },
+            libraryBusy = viewModel.scannedAlbumsSaveBusy.collectAsState().value,
             onDismiss = {
                 showAiUrlScan = false
                 browserFromAlbumScan = false
+                viewModel.clearScannedAlbums()
             },
         )
     }

@@ -156,8 +156,11 @@ touched.
 * The server chunks long pages, extracts `artist + album` pairs with the local
   LLM and resolves them against Spotify; the results can be saved to the
   library or turned into a playlist.
-* The found albums are saved to **your Spotify library** first and then to the
-  dashboard index; the message says how many were saved.
+* The scan itself only **finds** the albums — nothing is saved until you
+  choose where they go. The message says so: "Found N albums on Spotify —
+  nothing was saved yet".
+* **Add to library (N)** saves them to **your Spotify library** first and then
+  to the dashboard index; the message says how many were saved.
 * **Add to playlist (N)** puts them into a playlist you name in **New playlist
   name**, or into one of your existing playlists picked from the list.
 

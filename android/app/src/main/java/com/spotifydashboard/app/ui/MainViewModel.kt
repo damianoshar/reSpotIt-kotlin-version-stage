@@ -215,6 +215,10 @@ class MainViewModel(
     private val _playlistAddBusy = MutableStateFlow(false)
     val playlistAddBusy: StateFlow<Boolean> = _playlistAddBusy.asStateFlow()
 
+    /** True while the found albums are being added to the Spotify library. */
+    private val _scannedAlbumsSaveBusy = MutableStateFlow(false)
+    val scannedAlbumsSaveBusy: StateFlow<Boolean> = _scannedAlbumsSaveBusy.asStateFlow()
+
     // --- AI URL scan / concerts (Phase 3c) ---
     private val _concerts = MutableStateFlow<List<ConcertEntity>>(emptyList())
     val concerts: StateFlow<List<ConcertEntity>> = _concerts.asStateFlow()
@@ -3794,6 +3798,14 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
+    /**
+     * Resolve the albums on a page with the AI scanner.
+     *
+     * UI policy (P9): a scan only *finds* albums. It never saves them to
+     * Spotify and never writes them to the dashboard index — the user has to
+     * press "Add to library" or "Add to playlist" first. Nothing is added
+     * without an explicit user action.
+     */
     fun scanAlbumsUrl(url: String? = null, text: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             _actionMessage.value = null
@@ -3803,13 +3815,44 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 val resolved = dashboardRepository.resolveAlbums(pairs)
                 val albums = resolved?.resolved ?: emptyList()
                 if (albums.isEmpty()) {
+                    _scannedAlbums.value = emptyList()
                     _actionMessage.value = "No albums resolved from page"
                     return@launch
                 }
-                // Keep the resolved albums so the user can also add them to a
-                // playlist (named or existing) without scanning the page again.
+                // Keep the resolved albums so the user can add them to the
+                // library or to a playlist (named or existing) without scanning
+                // the page again.
                 _scannedAlbums.value = albums
-                val ids = albums.mapNotNull { it.spotify_id }.filter { it.isNotBlank() }
+                _actionMessage.value = buildString {
+                    append("Found ${albums.size} album${if (albums.size == 1) "" else "s"} on Spotify. ")
+                    append("Nothing was saved yet — choose \"Add to library\" or \"Add to playlist\" below.")
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "scanAlbumsUrl failed", e)
+                _actionMessage.value = friendlyScanError(e)
+            } finally {
+                _aiUrlScanLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Add the albums found by the last AI scan to the user's Spotify library
+     * and to the dashboard index.
+     *
+     * Only reachable through the "Add to library" button: a scan alone never
+     * writes anything (UI policy P9 — always ask first, never auto-add).
+     */
+    fun saveScannedAlbumsToLibrary() {
+        val albums = _scannedAlbums.value
+        val ids = albums.mapNotNull { it.spotify_id }.filter { it.isNotBlank() }.distinct()
+        if (ids.isEmpty()) {
+            _actionMessage.value = "No albums to add — scan a page first"
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _scannedAlbumsSaveBusy.value = true
+            try {
                 // 1. Spotify first - the albums have to reach the user's
                 //    Spotify library, not only the dashboard's own index.
                 var saved = 0
@@ -3842,12 +3885,17 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     append("Added $added album${if (added == 1) "" else "s"} to the library")
                 }
             } catch (e: Exception) {
-                Log.e("MainViewModel", "scanAlbumsUrl failed", e)
-                _actionMessage.value = friendlyScanError(e)
+                Log.e("MainViewModel", "Saving scanned albums failed", e)
+                _actionMessage.value = "Could not add the albums: ${e.message}"
             } finally {
-                _aiUrlScanLoading.value = false
+                _scannedAlbumsSaveBusy.value = false
             }
         }
+    }
+
+    /** Forget the albums found by the last scan (the dialog was closed). */
+    fun clearScannedAlbums() {
+        _scannedAlbums.value = emptyList()
     }
 
     /** Fetches the server's Spotify login URL; the Activity opens it in a browser. */
@@ -4452,6 +4500,10 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
      * Resolve the given Spotify album IDs via the phone's Spotify token and
      * add them to the active library (local Room or server import). Returns
      * through [_actionMessage] and [_csvImportResult].
+     *
+     * UI policy (P9): this only runs after the user pressed "Save N to
+     * Spotify & library" in the add-from-site dialog — the albums are never
+     * added without an explicit user action.
      */
     fun addAlbumsFromSite(ids: List<String>) {
         val unique = ids.distinct().filter { it.isNotBlank() }

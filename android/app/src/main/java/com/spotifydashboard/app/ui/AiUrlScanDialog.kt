@@ -33,6 +33,13 @@ fun AiUrlScanDialog(
     playlists: List<SpotifyPlaylist> = emptyList(),
     playlistBusy: Boolean = false,
     onAddToPlaylist: (albumIds: List<String>, playlistId: String?, newName: String?) -> Unit = { _, _, _ -> },
+    /**
+     * Add the found albums to the user's Spotify library and to the dashboard
+     * index. Only runs when the user presses "Add to library": a scan never
+     * saves anything on its own (UI policy P9).
+     */
+    onAddToLibrary: () -> Unit = {},
+    libraryBusy: Boolean = false,
     onDismiss: () -> Unit
 ) {
     var urlText by remember { mutableStateOf(initialUrl) }
@@ -113,10 +120,29 @@ fun AiUrlScanDialog(
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "Found ${scannedIds.size} album${if (scannedIds.size == 1) "" else "s"}" +
-                            " — they were saved to your Spotify library and added to the dashboard index.",
+                            " on Spotify — nothing was saved yet. Choose below where they go.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.height(8.dp))
+                    // The library save is an explicit action: the scan itself
+                    // never writes to Spotify or to the dashboard index.
+                    Button(
+                        onClick = { onAddToLibrary() },
+                        enabled = !libraryBusy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (libraryBusy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Adding…")
+                        } else {
+                            Text("Add to library (${scannedIds.size})")
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = playlistName,
                         onValueChange = { playlistName = it; playlistTarget = "" },
