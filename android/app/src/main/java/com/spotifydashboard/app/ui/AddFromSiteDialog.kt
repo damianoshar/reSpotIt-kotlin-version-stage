@@ -7,6 +7,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,11 +22,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.spotifydashboard.app.api.SpotifyPlaylist
 import com.spotifydashboard.app.utils.LinkHistoryStore
 import com.spotifydashboard.app.utils.LinkTarget
 import org.json.JSONArray
@@ -70,6 +75,14 @@ fun AddFromSiteDialog(
     onPrefetch: (List<String>) -> Unit = {},
     onDismiss: () -> Unit,
     onAdd: (List<String>) -> Unit,
+    /**
+     * Playlist target for the found albums: [playlistId] selects one of the
+     * user's existing playlists, [newName] names a playlist to create. Exactly
+     * one of them is used; [newName] wins when both are given.
+     */
+    onAddToPlaylist: (albumIds: List<String>, playlistId: String?, newName: String?) -> Unit = { _, _, _ -> },
+    playlists: List<SpotifyPlaylist> = emptyList(),
+    playlistBusy: Boolean = false,
     initialUrl: String? = null,
     // Snapshot the rendered page and hand (pageUrl, text) to the AI scanner.
     onScanConcerts: (String, String) -> Unit = { _, _ -> },
@@ -100,6 +113,11 @@ fun AddFromSiteDialog(
     var snapshotting by remember { mutableStateOf(false) }
     val detected = remember { mutableStateListOf<String>() }
     val selected = remember { mutableStateMapOf<String, Boolean>() }
+    // Playlist target for the found albums: a new playlist the user names, or
+    // one of the playlists they already have.
+    var playlistName by remember { mutableStateOf("") }
+    var playlistTarget by remember { mutableStateOf("") }
+    var playlistMenuOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(detected.toSet()) {
         if (detected.isNotEmpty()) onPrefetch(detected.toList())
@@ -627,9 +645,89 @@ fun AddFromSiteDialog(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("Adding…")
                                 } else {
-                                    Text("Add selected (${selectedIds.size})")
+                                    Text("Save ${selectedIds.size} to Spotify & library")
                                 }
                             }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = playlistName,
+                                onValueChange = { playlistName = it; playlistTarget = "" },
+                                label = { Text("New playlist name") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                enabled = !playlistBusy
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Box {
+                                OutlinedButton(
+                                    onClick = { playlistMenuOpen = true },
+                                    enabled = !playlistBusy,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        playlists.firstOrNull { it.id == playlistTarget }?.name
+                                            ?: "Pick one of your playlists"
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        Icons.Default.ArrowDropDown,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = playlistMenuOpen,
+                                    onDismissRequest = { playlistMenuOpen = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Create a new playlist") },
+                                        onClick = {
+                                            playlistTarget = ""
+                                            playlistMenuOpen = false
+                                        }
+                                    )
+                                    playlists.forEach { playlist ->
+                                        DropdownMenuItem(
+                                            text = { Text(playlist.name) },
+                                            onClick = {
+                                                playlistTarget = playlist.id
+                                                playlistMenuOpen = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    onAddToPlaylist(
+                                        selectedIds,
+                                        playlistTarget.ifBlank { null },
+                                        playlistName.trim().ifBlank { null }
+                                    )
+                                },
+                                enabled = selectedIds.isNotEmpty() && !playlistBusy &&
+                                    (playlistTarget.isNotBlank() || playlistName.isNotBlank()),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (playlistBusy) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Adding…")
+                                } else {
+                                    Text("Add to playlist (${selectedIds.size})")
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Type a name to create a playlist, or pick one of your playlists. " +
+                                    "The ${selectedIds.size} selected album(s) are added with all their tracks.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = androidx.compose.ui.graphics.Color(0xFFB3B3B3)
+                            )
                         }
                     }
                 }

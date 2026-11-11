@@ -4,12 +4,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.spotifydashboard.app.api.ResolvedAlbumDto
+import com.spotifydashboard.app.api.SpotifyPlaylist
 import com.spotifydashboard.app.utils.LinkHistoryStore
 import com.spotifydashboard.app.utils.LinkTarget
 
@@ -21,12 +25,28 @@ fun AiUrlScanDialog(
     onOpenBrowser: (String) -> Unit = {},
     initialUrl: String = "",
     onUrlChange: (String) -> Unit = {},
+    /**
+     * Albums found by the last scan. They are kept so the user can also add
+     * them to a playlist (a new one they name, or one they already have).
+     */
+    scannedAlbums: List<ResolvedAlbumDto> = emptyList(),
+    playlists: List<SpotifyPlaylist> = emptyList(),
+    playlistBusy: Boolean = false,
+    onAddToPlaylist: (albumIds: List<String>, playlistId: String?, newName: String?) -> Unit = { _, _, _ -> },
     onDismiss: () -> Unit
 ) {
     var urlText by remember { mutableStateOf(initialUrl) }
     var pasteText by remember { mutableStateOf("") }
+    // Playlist target for the found albums: a new playlist the user names, or
+    // one of the playlists they already have.
+    var playlistName by remember { mutableStateOf("") }
+    var playlistTarget by remember { mutableStateOf("") }
+    var playlistMenuOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val linkStore = remember { LinkHistoryStore(context) }
+    val scannedIds = remember(scannedAlbums) {
+        scannedAlbums.mapNotNull { it.spotify_id }.filter { it.isNotBlank() }.distinct()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -89,6 +109,87 @@ fun AiUrlScanDialog(
                     },
                     enabled = !loading,
                 )
+                if (scannedIds.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Found ${scannedIds.size} album${if (scannedIds.size == 1) "" else "s"}" +
+                            " — they were saved to your Spotify library and added to the dashboard index.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = playlistName,
+                        onValueChange = { playlistName = it; playlistTarget = "" },
+                        label = { Text("New playlist name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        enabled = !playlistBusy
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Box {
+                        OutlinedButton(
+                            onClick = { playlistMenuOpen = true },
+                            enabled = !playlistBusy,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                playlists.firstOrNull { it.id == playlistTarget }?.name
+                                    ?: "Pick one of your playlists"
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = playlistMenuOpen,
+                            onDismissRequest = { playlistMenuOpen = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Create a new playlist") },
+                                onClick = {
+                                    playlistTarget = ""
+                                    playlistMenuOpen = false
+                                }
+                            )
+                            playlists.forEach { playlist ->
+                                DropdownMenuItem(
+                                    text = { Text(playlist.name) },
+                                    onClick = {
+                                        playlistTarget = playlist.id
+                                        playlistMenuOpen = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = {
+                            onAddToPlaylist(
+                                scannedIds,
+                                playlistTarget.ifBlank { null },
+                                playlistName.trim().ifBlank { null }
+                            )
+                        },
+                        enabled = !playlistBusy &&
+                            (playlistTarget.isNotBlank() || playlistName.isNotBlank()),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (playlistBusy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Adding…")
+                        } else {
+                            Text("Add to playlist (${scannedIds.size})")
+                        }
+                    }
+                }
             }
         },
         confirmButton = {

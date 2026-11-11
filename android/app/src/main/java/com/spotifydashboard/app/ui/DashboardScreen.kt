@@ -163,6 +163,11 @@ private fun SpotifyDashboardContent(
     // True while the in-app browser was opened from the album AI dialog, so
     // closing the browser returns to that dialog (React behaves the same way).
     var browserFromAlbumScan by remember { mutableStateOf(false) }
+    // The add-from-site and AI-scan playlist pickers list the user's playlists,
+    // so make sure they are loaded when either dialog opens.
+    LaunchedEffect(showAddFromSite, showAiUrlScan) {
+        if (showAddFromSite || showAiUrlScan) viewModel.loadPlaylists()
+    }
     var showSpotifySearchPlaylist by remember { mutableStateOf(false) }
     var showArtistDiscographyPlaylist by remember { mutableStateOf(false) }
     var showRetentionDialog by remember { mutableStateOf(false) }
@@ -219,6 +224,8 @@ private fun SpotifyDashboardContent(
     val followArtistsBusy by viewModel.followArtistsBusy.collectAsState()
     val addingFromSite by viewModel.addingFromSite.collectAsState()
     val siteAlbumLabels by viewModel.siteAlbumLabels.collectAsState()
+    val playlistAddBusy by viewModel.playlistAddBusy.collectAsState()
+    val scannedAlbums by viewModel.scannedAlbums.collectAsState()
     val spotifySearchPlaylist by viewModel.spotifySearchPlaylist.collectAsState()
     val artistDiscography by viewModel.artistDiscography.collectAsState()
     val catalogPlaylistBusy by viewModel.catalogPlaylistBusy.collectAsState()
@@ -895,6 +902,7 @@ private fun SpotifyDashboardContent(
             onPlayAlbum = { viewModel.playAlbumLocally() },
             onPlayTrack = { uri -> viewModel.playTrackLocally(uri) },
             onPlayTrackOnSpotify = { uri -> viewModel.playTrackOnSpotify(uri) },
+            onPlayAlbumOnSpotify = { viewModel.playAlbumOnSpotify() },
             onLocalQueueNextTrack = { uri -> viewModel.enqueueTrackLocally(uri, next = true) },
             onLocalQueueEndTrack = { uri -> viewModel.enqueueTrackLocally(uri, next = false) },
             onLocalQueuePlaylistTrack = { uri, insertNext ->
@@ -1040,6 +1048,11 @@ private fun SpotifyDashboardContent(
                 }
             },
             onAdd = viewModel::addAlbumsFromSite,
+            onAddToPlaylist = { albumIds, playlistId, newName ->
+                viewModel.addFoundAlbumsToPlaylist(albumIds, playlistId, newName)
+            },
+            playlists = playlists,
+            playlistBusy = playlistAddBusy,
             initialUrl = browserStartUrl ?: sharedSiteUrl,
             onScanConcerts = { pageUrl, text ->
                 // The snapshot already holds the rendered page; close the browser
@@ -1105,6 +1118,12 @@ private fun SpotifyDashboardContent(
             },
             initialUrl = albumScanUrl,
             onUrlChange = { albumScanUrl = it },
+            scannedAlbums = scannedAlbums,
+            playlists = playlists,
+            playlistBusy = playlistAddBusy,
+            onAddToPlaylist = { albumIds, playlistId, newName ->
+                viewModel.addFoundAlbumsToPlaylist(albumIds, playlistId, newName)
+            },
             onDismiss = {
                 showAiUrlScan = false
                 browserFromAlbumScan = false
@@ -4849,6 +4868,7 @@ fun AlbumTrackSheet(
     onPlayAlbum: () -> Unit = {},
     onPlayTrack: (String) -> Unit = {},
     onPlayTrackOnSpotify: (String) -> Unit = {},
+    onPlayAlbumOnSpotify: () -> Unit = {},
     onLocalQueueNextTrack: (String) -> Unit = {},
     onLocalQueueEndTrack: (String) -> Unit = {},
     onLocalQueuePlaylistTrack: (String, Boolean) -> Unit = { _, _ -> },
@@ -4876,11 +4896,13 @@ fun AlbumTrackSheet(
         }
     }
     val spotifyLegend = buildString {
-        append("Play = play on Spotify · Next = queue on Spotify")
+        append("Play = play on your active Spotify device · Next = queue on Spotify")
         if (sheet.playlistId != null) {
             append(" · Remove = remove from the playlist")
         }
     }
+    val context = LocalContext.current
+    val spotifyAlbumLink = spotifyAlbumUrl(sheet.albumId)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -4952,7 +4974,32 @@ fun AlbumTrackSheet(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Play album")
+                        Text("Play album on this device")
+                    }
+                }
+                // Play on Spotify: the album is handed to the device the user
+                // is currently listening on.
+                OutlinedButton(
+                    onClick = onPlayAlbumOnSpotify,
+                    enabled = sheet.tracks.isNotEmpty()
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Play album on Spotify")
+                }
+                if (spotifyAlbumLink != null) {
+                    OutlinedButton(onClick = { openSpotifyUrl(context, spotifyAlbumLink) }) {
+                        Icon(
+                            Icons.Default.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Open on Spotify")
                     }
                 }
                 if (localPlaybackEnabled) {
@@ -5171,7 +5218,7 @@ fun AlbumTrackSheet(
                                         IconButton(onClick = { onPlayTrackOnSpotify(track.uri) }) {
                                             Icon(
                                                 Icons.Default.PlayArrow,
-                                                contentDescription = "Play on Spotify",
+                                                contentDescription = "Play on your active Spotify device",
                                                 modifier = Modifier.size(18.dp)
                                             )
                                         }

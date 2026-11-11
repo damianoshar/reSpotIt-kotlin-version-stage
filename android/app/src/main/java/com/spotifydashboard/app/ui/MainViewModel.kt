@@ -35,6 +35,7 @@ import com.spotifydashboard.app.data.LibraryStats
 import com.spotifydashboard.app.data.PlaylistAlbumEntity
 import com.spotifydashboard.app.data.ViewMode
 import com.spotifydashboard.app.api.RemoteAlbumTrack
+import com.spotifydashboard.app.api.ResolvedAlbumDto
 import com.spotifydashboard.app.api.ConcertScanDto
 import com.spotifydashboard.app.api.LLMChatRequest
 import com.spotifydashboard.app.api.LLMChatSummaryDto
@@ -201,6 +202,18 @@ class MainViewModel(
     /** Human-readable "Artist \u2014 Title" labels fetched from Spotify for scanned IDs. */
     private val _siteAlbumLabels = MutableStateFlow<Map<String, String>>(emptyMap())
     val siteAlbumLabels: StateFlow<Map<String, String>> = _siteAlbumLabels.asStateFlow()
+
+    /**
+     * Albums found by the last AI scan. They are kept so the user can also add
+     * them to a playlist (a new one they name, or one they already have)
+     * without having to scan the page again.
+     */
+    private val _scannedAlbums = MutableStateFlow<List<ResolvedAlbumDto>>(emptyList())
+    val scannedAlbums: StateFlow<List<ResolvedAlbumDto>> = _scannedAlbums.asStateFlow()
+
+    /** True while the found albums are being added to a playlist. */
+    private val _playlistAddBusy = MutableStateFlow(false)
+    val playlistAddBusy: StateFlow<Boolean> = _playlistAddBusy.asStateFlow()
 
     // --- AI URL scan / concerts (Phase 3c) ---
     private val _concerts = MutableStateFlow<List<ConcertEntity>>(emptyList())
@@ -1345,6 +1358,28 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 _actionMessage.value = "Playing on Spotify"
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Play track on Spotify failed", e)
+                _actionMessage.value = "Play failed: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Play the open album on the active Spotify device.
+     *
+     * UI policy: "Play album" targets the device the user is currently
+     * listening on, not the on-device player.
+     */
+    fun playAlbumOnSpotify() {
+        val sheet = _albumSheet.value ?: return
+        val albumId = sheet.albumId.trim()
+        if (albumId.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val device = pickPlaybackDevice(spotifyRepository.getDevices())
+                spotifyRepository.playAlbumAsContext("spotify:album:$albumId", device?.id)
+                _actionMessage.value = "Playing \"${sheet.title}\" on your active Spotify device"
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Play album on Spotify failed", e)
                 _actionMessage.value = "Play failed: ${e.message}"
             }
         }
@@ -3687,6 +3722,78 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
         }
     }
 
+    /**
+     * Save albums to the user's Spotify library.
+     *
+     * UI policy: an "add to the library" action has to reach Spotify. Writing
+     * only to the dashboard's own index is not "adding it to Spotify".
+     * Remote mode has no device token, so the media server does the write.
+     * Returns how many albums were saved.
+     */
+    private suspend fun saveAlbumsToSpotify(albumIds: List<String>): Int {
+        val ids = albumIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (ids.isEmpty()) return 0
+        return if (remoteActive()) dashboardRepository.saveSpotifyAlbums(ids)
+        else spotifyRepository.saveAlbums(ids)
+    }
+
+    /**
+     * Add the given albums to a playlist: either a new playlist with the name
+     * the user typed, or one of the playlists they already have.
+     */
+    fun addFoundAlbumsToPlaylist(albumIds: List<String>, playlistId: String?, newName: String?) {
+        val ids = albumIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toSet()
+        if (ids.isEmpty()) {
+            _actionMessage.value = "No albums selected"
+            return
+        }
+        val existing = playlistId?.takeIf { it.isNotBlank() }
+        val name = newName?.trim().orEmpty()
+        if (existing == null && name.isEmpty()) {
+            _actionMessage.value = "Name the new playlist, or pick one of your playlists"
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _playlistAddBusy.value = true
+            try {
+                var label = name
+                // null = the API does not report a track count for this path.
+                var tracksAdded: Int? = null
+                var created = false
+                if (existing != null) {
+                    label = _playlists.value.firstOrNull { it.id == existing }?.name ?: "playlist"
+                    if (remoteActive()) {
+                        tracksAdded = dashboardRepository.addAlbumsToPlaylist(ids, existing)
+                    } else {
+                        playlistRepository.addAlbumsToPlaylist(ids, existing)
+                    }
+                } else {
+                    created = true
+                    tracksAdded = if (remoteActive()) {
+                        dashboardRepository.createAndAddPlaylist(name, ids).tracks_added
+                    } else {
+                        playlistRepository.createPlaylistFromAlbumIds(
+                            name = name,
+                            albumIds = ids.toList(),
+                            deduplicate = false,
+                        ).tracksAdded
+                    }
+                }
+                _actionMessage.value = buildString {
+                    if (created) append("Created \"$label\"") else append("Added to \"$label\"")
+                    append(" with ${ids.size} album(s)")
+                    if (tracksAdded != null) append(" ($tracksAdded tracks)")
+                }
+                loadPlaylists()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "addFoundAlbumsToPlaylist failed", e)
+                _actionMessage.value = "Could not add to the playlist: ${e.message}"
+            } finally {
+                _playlistAddBusy.value = false
+            }
+        }
+    }
+
     fun scanAlbumsUrl(url: String? = null, text: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             _actionMessage.value = null
@@ -3699,6 +3806,22 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                     _actionMessage.value = "No albums resolved from page"
                     return@launch
                 }
+                // Keep the resolved albums so the user can also add them to a
+                // playlist (named or existing) without scanning the page again.
+                _scannedAlbums.value = albums
+                val ids = albums.mapNotNull { it.spotify_id }.filter { it.isNotBlank() }
+                // 1. Spotify first - the albums have to reach the user's
+                //    Spotify library, not only the dashboard's own index.
+                var saved = 0
+                var spotifyError: String? = null
+                try {
+                    saved = saveAlbumsToSpotify(ids)
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Saving scanned albums to Spotify failed", e)
+                    spotifyError = e.message ?: "Spotify did not accept the albums"
+                }
+                // 2. Then the dashboard index (so the library shows them right
+                //    away).
                 val csv = com.spotifydashboard.app.utils.CSVHelper.buildCsv(
                     listOf("id", "title", "artist", "year", "genre", "image_url", "added_at"),
                     albums.map { a ->
@@ -3710,7 +3833,14 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 loadLibraryFilterOptions()
                 runLibraryQuery()
                 val added = result.imported + result.existing
-                _actionMessage.value = "Added $added album${if (added == 1) "" else "s"} to the library"
+                _actionMessage.value = buildString {
+                    if (spotifyError == null) {
+                        append("Saved $saved album(s) to your Spotify library. ")
+                    } else {
+                        append("Could not save the albums to Spotify ($spotifyError). ")
+                    }
+                    append("Added $added album${if (added == 1) "" else "s"} to the library")
+                }
             } catch (e: Exception) {
                 Log.e("MainViewModel", "scanAlbumsUrl failed", e)
                 _actionMessage.value = friendlyScanError(e)
@@ -4339,6 +4469,18 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                         "Could not look up those albums. Log in to Spotify on this device and try again."
                     return@launch
                 }
+                // 1. Spotify first - the albums have to reach the user's
+                //    Spotify library, not only the dashboard's own index.
+                var saved = 0
+                var spotifyError: String? = null
+                try {
+                    saved = saveAlbumsToSpotify(unique)
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Saving site albums to Spotify failed", e)
+                    spotifyError = e.message ?: "Spotify did not accept the albums"
+                }
+                // 2. Then the dashboard index (so the library shows them right
+                //    away).
                 val csv = CSVHelper.buildCsv(
                     listOf("id", "title", "artist", "year", "genre", "image_url", "added_at"),
                     entities.map { e ->
@@ -4351,8 +4493,15 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
                 loadLibraryFilterOptions()
                 runLibraryQuery()
                 val added = result.imported + result.existing
-                _actionMessage.value = "Added $added album${if (added == 1) "" else "s"} to the library" +
-                    (if (result.errors.isNotEmpty()) " (${result.errors.size} skipped)" else "")
+                _actionMessage.value = buildString {
+                    if (spotifyError == null) {
+                        append("Saved $saved album(s) to your Spotify library. ")
+                    } else {
+                        append("Could not save the albums to Spotify ($spotifyError). ")
+                    }
+                    append("Added $added album${if (added == 1) "" else "s"} to the library" +
+                        (if (result.errors.isNotEmpty()) " (${result.errors.size} skipped)" else ""))
+                }
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Add from site failed", e)
                 _csvImportResult.value = CsvImportResult(0, 0, listOf(e.message ?: "Import failed"))

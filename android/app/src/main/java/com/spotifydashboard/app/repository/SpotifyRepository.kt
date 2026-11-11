@@ -467,6 +467,17 @@ class SpotifyRepository(
         }
     }
 
+    /**
+     * Start playback of an album on the active Spotify device.
+     *
+     * UI policy: a "Play" control targets the device the user is currently
+     * listening on, so the album is handed over as a Spotify context.
+     */
+    suspend fun playAlbumAsContext(
+        albumUri: String,
+        deviceId: String?,
+    ) = playTrackAsContext(albumUri, deviceId)
+
     suspend fun getStats(): LibraryStats? = withContext(Dispatchers.IO) {
         try {
             LibraryStats(
@@ -527,6 +538,36 @@ class SpotifyRepository(
             albums.associateBy { it.id }).values.toList()
         saveHiddenAlbums(merged)
         albums.size
+    }
+
+    /**
+     * Save albums to the user's Spotify library (PUT me/albums).
+     *
+     * UI policy: "add to the library" has to reach Spotify — writing only to
+     * the dashboard's own index is not enough. The JSON body takes up to 50
+     * ids per request (the deprecated `ids` query parameter caps at 20).
+     * Returns how many albums were saved.
+     */
+    suspend fun saveAlbums(albumIds: Collection<String>): Int = withContext(Dispatchers.IO) {
+        val ids = albumIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (ids.isEmpty()) return@withContext 0
+        val token = authManager.getValidAccessToken() ?: throw Exception("Authentication required")
+        val auth = "Bearer $token"
+        var saved = 0
+        for (chunk in ids.chunked(50)) {
+            val resp = apiService.saveAlbums(auth, SaveAlbumsRequest(chunk))
+            if (!resp.isSuccessful) {
+                throw Exception(
+                    when (resp.code()) {
+                        401 -> "Spotify session expired. Log in again, then retry."
+                        403 -> "Spotify did not grant permission to modify your library."
+                        else -> "Spotify could not save ${chunk.size} album(s) (HTTP ${resp.code()})"
+                    }
+                )
+            }
+            saved += chunk.size
+        }
+        saved
     }
 
     /**

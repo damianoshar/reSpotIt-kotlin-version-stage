@@ -41,14 +41,21 @@ Filters apply immediately to the grid.
 Bottom sheet for one album: cover, artist, year and track count.
 
 * **Queue** and **Add to playlist** for the whole album.
+* **Play album on Spotify** hands the album to your **active Spotify device**
+  (phone, speaker, TV — whatever you are listening on). It is *not* the
+  on-device player.
+* **Play album on this device** plays it through the phone's own speaker
+  (on-device playback only; the button is hidden when that is off).
+* **Open on Spotify** opens the album in the Spotify app.
 * Local queue options: **Queue playlist**, **Add album to end**, **Queue next**.
 * The track list shows the title, artist, play time, and playlist position (when
   opened from a playlist). Each track shows two stacked action rows:
   - **Local queue row** (on-device queue or local queue playlist): **Next** (queue
     next), **+** (add to end); in playlist context also **Pos** (play from
     playlist position, on-device only).
-  - **Spotify row**: **Play** (play on Spotify), **Next** (queue on Spotify);
-    in playlist context also **Remove** (remove from playlist).
+  - **Spotify row**: **Play** (play on your active Spotify device),
+    **Next** (queue on Spotify); in playlist context also **Remove** (remove
+    from playlist).
 * The redundant per-track local **Play** button is removed in the album context
   (the playlist **Pos** button covers that intent for on-device playback).
 * Above the track list a two-card legend explains both action rows.
@@ -149,6 +156,10 @@ touched.
 * The server chunks long pages, extracts `artist + album` pairs with the local
   LLM and resolves them against Spotify; the results can be saved to the
   library or turned into a playlist.
+* The found albums are saved to **your Spotify library** first and then to the
+  dashboard index; the message says how many were saved.
+* **Add to playlist (N)** puts them into a playlist you name in **New playlist
+  name**, or into one of your existing playlists picked from the list.
 
 ## 13. Add from site
 
@@ -159,6 +170,11 @@ and saved links, and the two page-snapshot buttons: **Scan this page for
 concerts (AI)** and **Scan this page for albums (AI)**. The scan evaluates
 `document.body.innerText` on the *rendered* page, so pages that build their
 list with JavaScript work as well.
+
+The detected albums are listed with checkboxes. **Save N to Spotify & library**
+saves the ticked albums to **your Spotify library** and then to the dashboard
+index; **Add to playlist (N)** puts them into a playlist you name, or into one
+of your existing playlists.
 
 ## 14. Settings
 
