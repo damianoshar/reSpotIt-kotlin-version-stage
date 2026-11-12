@@ -163,10 +163,14 @@ private fun SpotifyDashboardContent(
     // True while the in-app browser was opened from the album AI dialog, so
     // closing the browser returns to that dialog (React behaves the same way).
     var browserFromAlbumScan by remember { mutableStateOf(false) }
+    // The AI track scan: the same flow, but for tracks.
+    var showAiTrackScan by remember { mutableStateOf(false) }
+    var trackScanUrl by remember { mutableStateOf("") }
+    var browserFromTrackScan by remember { mutableStateOf(false) }
     // The add-from-site and AI-scan playlist pickers list the user's playlists,
     // so make sure they are loaded when either dialog opens.
-    LaunchedEffect(showAddFromSite, showAiUrlScan) {
-        if (showAddFromSite || showAiUrlScan) viewModel.loadPlaylists()
+    LaunchedEffect(showAddFromSite, showAiUrlScan, showAiTrackScan) {
+        if (showAddFromSite || showAiUrlScan || showAiTrackScan) viewModel.loadPlaylists()
     }
     var showSpotifySearchPlaylist by remember { mutableStateOf(false) }
     var showArtistDiscographyPlaylist by remember { mutableStateOf(false) }
@@ -226,6 +230,8 @@ private fun SpotifyDashboardContent(
     val siteAlbumLabels by viewModel.siteAlbumLabels.collectAsState()
     val playlistAddBusy by viewModel.playlistAddBusy.collectAsState()
     val scannedAlbums by viewModel.scannedAlbums.collectAsState()
+    val scannedTracks by viewModel.scannedTracks.collectAsState()
+    val trackPlaylistAddBusy by viewModel.scannedTracksAddBusy.collectAsState()
     val spotifySearchPlaylist by viewModel.spotifySearchPlaylist.collectAsState()
     val artistDiscography by viewModel.artistDiscography.collectAsState()
     val catalogPlaylistBusy by viewModel.catalogPlaylistBusy.collectAsState()
@@ -559,6 +565,12 @@ private fun SpotifyDashboardContent(
                         Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Scan page with AI (albums)")
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(onClick = { showAiTrackScan = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Scan page with AI (tracks)")
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedButton(onClick = { viewModel.loadConcerts(); showConcerts = true }, modifier = Modifier.fillMaxWidth()) {
@@ -1046,6 +1058,10 @@ private fun SpotifyDashboardContent(
                     browserFromAlbumScan = false
                     showAiUrlScan = true
                 }
+                if (browserFromTrackScan) {
+                    browserFromTrackScan = false
+                    showAiTrackScan = true
+                }
             },
             onAdd = viewModel::addAlbumsFromSite,
             onAddToPlaylist = { albumIds, playlistId, newName ->
@@ -1072,6 +1088,16 @@ private fun SpotifyDashboardContent(
                 albumScanUrl = pageUrl
                 showAiUrlScan = true
                 viewModel.scanAlbumsUrl(text = text)
+            },
+            onScanTracks = { pageUrl, text ->
+                // The same capture for tracklists: close the browser and run
+                // the AI track scan on the snapshot.
+                showAddFromSite = false
+                browserStartUrl = null
+                browserFromTrackScan = false
+                trackScanUrl = pageUrl
+                showAiTrackScan = true
+                viewModel.scanTracksUrl(text = text)
             }
         )
     }
@@ -1130,6 +1156,34 @@ private fun SpotifyDashboardContent(
                 showAiUrlScan = false
                 browserFromAlbumScan = false
                 viewModel.clearScannedAlbums()
+            },
+        )
+    }
+
+    if (showAiTrackScan) {
+        AiTrackScanDialog(
+            loading = viewModel.aiTrackScanLoading.collectAsState().value,
+            message = viewModel.actionMessage.collectAsState().value,
+            onScan = { url, text -> viewModel.scanTracksUrl(url, text) },
+            onOpenBrowser = { pageUrl ->
+                browserFromTrackScan = true
+                trackScanUrl = pageUrl
+                browserStartUrl = pageUrl
+                showAiTrackScan = false
+                showAddFromSite = true
+            },
+            initialUrl = trackScanUrl,
+            onUrlChange = { trackScanUrl = it },
+            scannedTracks = scannedTracks,
+            playlists = playlists,
+            playlistBusy = trackPlaylistAddBusy,
+            onAddToPlaylist = { playlistId, newName ->
+                viewModel.addFoundTracksToPlaylist(playlistId, newName)
+            },
+            onDismiss = {
+                showAiTrackScan = false
+                browserFromTrackScan = false
+                viewModel.clearScannedTracks()
             },
         )
     }

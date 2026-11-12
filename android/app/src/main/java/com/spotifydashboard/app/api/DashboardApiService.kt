@@ -412,6 +412,14 @@ data class ExtractedConcertDto(val artist: String = "", val date: String = "", v
 data class ExtractConcertsResponse(val data: ExtractConcertsData? = null)
 data class ExtractConcertsData(val concerts: List<ExtractedConcertDto> = emptyList())
 
+// --- AI track scan (the track counterpart of the album scan) ---
+data class ExtractedTrackDto(val artist: String = "", val title: String = "")
+data class ExtractTracksResponse(val data: ExtractTracksData? = null)
+data class ExtractTracksData(val tracks: List<ExtractedTrackDto> = emptyList())
+
+data class ResolveTrackItem(val artist: String = "", val title: String = "")
+data class ResolveTracksBody(val items: List<ResolveTrackItem> = emptyList())
+
 data class FollowedArtistDto(val id: String = "", val name: String = "", val image_url: String = "", val genres: List<String> = emptyList())
 data class FollowedArtistsResponse(val artists: List<FollowedArtistDto> = emptyList())
 
@@ -427,6 +435,26 @@ data class ResolveAlbumsResponse(val resolved: List<ResolvedAlbumDto> = emptyLis
 
 data class ResolvedArtistDto(val name: String = "", val spotify_id: String = "", val matched_name: String = "", val image_url: String = "", val genres: List<String> = emptyList(), val followed: Boolean = false)
 data class ResolveArtistsResponse(val resolved: List<ResolvedArtistDto> = emptyList(), val unresolved: List<String> = emptyList())
+
+// A track resolved by the AI track scan. The URI is what goes into the
+// playlist; the rest is only shown to the user.
+data class ResolvedTrackDto(
+    val artist: String = "",
+    val title: String = "",
+    val spotify_id: String = "",
+    val uri: String = "",
+    val name: String = "",
+    val artist_name: String = "",
+    val album_name: String = "",
+    val album_id: String = "",
+    val image_url: String = "",
+    val spotify_url: String = "",
+    val duration_ms: Int = 0,
+)
+data class ResolveTracksResponse(
+    val resolved: List<ResolvedTrackDto> = emptyList(),
+    val unresolved: List<Map<String, String>> = emptyList(),
+)
 
 // --- Concerts (server-canonical — docs/STORAGE-POLICY.md) ---
 
@@ -847,6 +875,14 @@ interface DashboardApiService {
         @Body body: ExtractBody
     ): Response<ExtractConcertsResponse>
 
+    // The track counterpart of /llm/extract-albums (read-only: it never
+    // writes to Spotify).
+    @POST("api/v1/llm/extract-tracks")
+    suspend fun extractTracks(
+        @Header("Authorization") auth: String,
+        @Body body: ExtractBody
+    ): Response<ExtractTracksResponse>
+
     @GET("api/v1/spotify/followed-artists")
     suspend fun getFollowedArtists(
         @Header("Authorization") auth: String
@@ -868,6 +904,13 @@ interface DashboardApiService {
         @Header("Authorization") auth: String,
         @Body body: ResolveArtistsBody
     ): Response<ResolveArtistsResponse>
+
+    // The track counterpart of /spotify/resolve-albums (read-only).
+    @POST("api/v1/spotify/resolve-tracks")
+    suspend fun resolveTracks(
+        @Header("Authorization") auth: String,
+        @Body body: ResolveTracksBody
+    ): Response<ResolveTracksResponse>
 
     // --- Local LLM (Open WebUI proxy) ---
 

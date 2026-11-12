@@ -13,6 +13,7 @@ import org.json.JSONObject
  * Buckets are kept separate so the concerts list does not mix with album scans:
  *   concerts — ConcertsDialog
  *   albums   — AiUrlScanDialog (AI scan and pasted Spotify links)
+ *   tracks   — AiTrackScanDialog (AI track scan)
  *   site     — AddFromSiteDialog (in-app browser)
  *
  * Device-local SharedPreferences: small, per-device, and survives restarts.

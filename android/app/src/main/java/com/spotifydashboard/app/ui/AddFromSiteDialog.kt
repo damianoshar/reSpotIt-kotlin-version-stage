@@ -86,7 +86,9 @@ fun AddFromSiteDialog(
     initialUrl: String? = null,
     // Snapshot the rendered page and hand (pageUrl, text) to the AI scanner.
     onScanConcerts: (String, String) -> Unit = { _, _ -> },
-    onScanAlbums: (String, String) -> Unit = { _, _ -> }
+    onScanAlbums: (String, String) -> Unit = { _, _ -> },
+    // The same capture for tracklists: the AI track scan.
+    onScanTracks: (String, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val prefs = remember {
@@ -455,6 +457,27 @@ fun AddFromSiteDialog(
                     Text(
                         if (snapshotting) "Reading the page…"
                         else "Scan this page for albums (AI)"
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val wv = webView ?: return@OutlinedButton
+                        snapshotPage(wv) { pageUrl, text ->
+                            if (pageUrl.isNotBlank()) {
+                                linkStore.recordRecent("tracks", pageUrl, LinkTarget.URL)
+                            }
+                            onScanTracks(pageUrl, text)
+                        }
+                    },
+                    enabled = !snapshotting,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                ) {
+                    Text(
+                        if (snapshotting) "Reading the page…"
+                        else "Scan this page for tracks (AI)"
                     )
                 }
 

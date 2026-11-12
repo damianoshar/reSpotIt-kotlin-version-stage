@@ -36,6 +36,7 @@ import com.spotifydashboard.app.data.PlaylistAlbumEntity
 import com.spotifydashboard.app.data.ViewMode
 import com.spotifydashboard.app.api.RemoteAlbumTrack
 import com.spotifydashboard.app.api.ResolvedAlbumDto
+import com.spotifydashboard.app.api.ResolvedTrackDto
 import com.spotifydashboard.app.api.ConcertScanDto
 import com.spotifydashboard.app.api.LLMChatRequest
 import com.spotifydashboard.app.api.LLMChatSummaryDto
@@ -218,6 +219,22 @@ class MainViewModel(
     /** True while the found albums are being added to the Spotify library. */
     private val _scannedAlbumsSaveBusy = MutableStateFlow(false)
     val scannedAlbumsSaveBusy: StateFlow<Boolean> = _scannedAlbumsSaveBusy.asStateFlow()
+
+    /**
+     * Tracks found by the last AI track scan. They are kept so the user can
+     * add them to a playlist (a new one they name, or one they already have)
+     * without having to scan the page again.
+     */
+    private val _scannedTracks = MutableStateFlow<List<ResolvedTrackDto>>(emptyList())
+    val scannedTracks: StateFlow<List<ResolvedTrackDto>> = _scannedTracks.asStateFlow()
+
+    /** True while the AI track scan is running. */
+    private val _aiTrackScanLoading = MutableStateFlow(false)
+    val aiTrackScanLoading: StateFlow<Boolean> = _aiTrackScanLoading.asStateFlow()
+
+    /** True while the found tracks are being added to a playlist. */
+    private val _scannedTracksAddBusy = MutableStateFlow(false)
+    val scannedTracksAddBusy: StateFlow<Boolean> = _scannedTracksAddBusy.asStateFlow()
 
     // --- AI URL scan / concerts (Phase 3c) ---
     private val _concerts = MutableStateFlow<List<ConcertEntity>>(emptyList())
@@ -3896,6 +3913,108 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     /** Forget the albums found by the last scan (the dialog was closed). */
     fun clearScannedAlbums() {
         _scannedAlbums.value = emptyList()
+    }
+
+    /**
+     * Resolve the tracks on a page with the AI scanner.
+     *
+     * UI policy (P9): a scan only *finds* tracks. It never writes to Spotify
+     * and never touches the dashboard index — the user has to press "Add to
+     * playlist" first. Nothing is added without an explicit user action.
+     */
+    fun scanTracksUrl(url: String? = null, text: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _actionMessage.value = null
+            _aiTrackScanLoading.value = true
+            try {
+                val pairs = dashboardRepository.extractTracks(url, text)
+                val resolved = dashboardRepository.resolveTracks(pairs)
+                val tracks = resolved?.resolved ?: emptyList()
+                if (tracks.isEmpty()) {
+                    _scannedTracks.value = emptyList()
+                    _actionMessage.value = "No tracks resolved from page"
+                    return@launch
+                }
+                // Keep the resolved tracks so the user can add them to a
+                // playlist (named or existing) without scanning the page again.
+                _scannedTracks.value = tracks
+                _actionMessage.value = buildString {
+                    append("Found ${tracks.size} track${if (tracks.size == 1) "" else "s"} on Spotify. ")
+                    append("Nothing was saved yet — choose \"Add to playlist\" below.")
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "scanTracksUrl failed", e)
+                _actionMessage.value = friendlyScanError(e)
+            } finally {
+                _aiTrackScanLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Add the tracks found by the last AI scan to a playlist.
+     *
+     * This is the only write the track scan can do, and it happens only
+     * behind the "Add to playlist" button (UI policy P9 — always ask first).
+     * The tracks go in as track URIs; nothing is saved to the Spotify library
+     * (there is no saved-tracks shelf the user would expect).
+     */
+    fun addFoundTracksToPlaylist(playlistId: String?, newName: String?) {
+        val tracks = _scannedTracks.value
+        val uris = tracks.mapNotNull { it.uri }.filter { it.isNotBlank() }.distinct()
+        if (uris.isEmpty()) {
+            _actionMessage.value = "No tracks to add — scan a page first"
+            return
+        }
+        val existing = playlistId?.takeIf { it.isNotBlank() }
+        val name = newName?.trim().orEmpty()
+        if (existing == null && name.isEmpty()) {
+            _actionMessage.value = "Name the new playlist, or pick one of your playlists"
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _scannedTracksAddBusy.value = true
+            try {
+                var label = name
+                var tracksAdded: Int? = null
+                var created = false
+                if (existing != null) {
+                    label = _playlists.value.firstOrNull { it.id == existing }?.name ?: "playlist"
+                    tracksAdded = if (remoteActive()) {
+                        dashboardRepository.addTrackUrisToPlaylist(existing, uris)
+                    } else {
+                        playlistRepository.addTrackUrisToPlaylist(existing, uris)
+                    }
+                } else {
+                    created = true
+                    tracksAdded = if (remoteActive()) {
+                        dashboardRepository.createAndAddPlaylist(
+                            name = name,
+                            albumIds = emptySet(),
+                            uris = uris,
+                        ).tracks_added
+                    } else {
+                        playlistRepository.createPlaylistWithUris(name, uris).tracks.total
+                    }
+                }
+                _actionMessage.value = buildString {
+                    if (created) append("Created \"$label\"") else append("Added to \"$label\"")
+                    append(" with ${uris.size} track(s)")
+                    if (tracksAdded != null) append(" ($tracksAdded added)")
+                }
+                loadPlaylists()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "addFoundTracksToPlaylist failed", e)
+                _actionMessage.value = "Could not add to the playlist: ${e.message}"
+            } finally {
+                _scannedTracksAddBusy.value = false
+            }
+        }
+    }
+
+    /** Forget the tracks found by the last scan (the dialog was closed). */
+    fun clearScannedTracks() {
+        _scannedTracks.value = emptyList()
     }
 
     /** Fetches the server's Spotify login URL; the Activity opens it in a browser. */

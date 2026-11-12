@@ -253,6 +253,22 @@ class DashboardRepository(private val context: Context) {
         authed(llmService()) { svc, header -> svc.resolveAlbums(header, ResolveAlbumsBody(items = list)) }
     }
 
+    /**
+     * The track counterpart of [extractAlbums]: the AI reads the page and
+     * returns the song titles it found. Nothing is written to Spotify.
+     */
+    suspend fun extractTracks(url: String? = null, text: String? = null): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+        val body = ExtractBody(url = url?.takeIf { it.isNotBlank() }, text = text?.takeIf { it.isNotBlank() })
+        val res = authed(llmService()) { svc, header -> svc.extractTracks(header, body) }
+        (res?.data?.tracks ?: emptyList()).map { it.artist to it.title }
+    }
+
+    /** The track counterpart of [resolveAlbums]. Read-only (UI policy P9). */
+    suspend fun resolveTracks(items: List<Pair<String, String>>): ResolveTracksResponse? = withContext(Dispatchers.IO) {
+        val list = items.map { ResolveTrackItem(artist = it.first, title = it.second) }
+        authed(llmService()) { svc, header -> svc.resolveTracks(header, ResolveTracksBody(items = list)) }
+    }
+
     suspend fun extractConcerts(url: String? = null, text: String? = null): List<ExtractedConcertDto> = withContext(Dispatchers.IO) {
         val body = ExtractBody(url = url?.takeIf { it.isNotBlank() }, text = text?.takeIf { it.isNotBlank() })
         val res = authed(llmService()) { svc, header -> svc.extractConcerts(header, body) }
