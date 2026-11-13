@@ -68,6 +68,23 @@ data class AlbumTrackItem(
     val preview_url: String? = null
 )
 
+// --- Batch track details (the popularity lookup) ---
+
+/**
+ * The full track object. An album's track list holds simplified objects,
+ * which carry no popularity; `/tracks?ids=...` returns these.
+ */
+data class SpotifyTrackItem(
+    val id: String? = null,
+    val uri: String = "",
+    val name: String = "",
+    val popularity: Int = 0
+)
+
+data class SeveralTracksResponse(
+    val tracks: List<SpotifyTrackItem?> = emptyList()
+)
+
 // --- Playback (read-only) ---
 
 data class SpotifyPlaybackAlbum(
@@ -202,6 +219,16 @@ interface SpotifyApiService {
         @Header("Authorization") authHeader: String,
         @Path("album_id") albumId: String
     ): Response<SpotifyAlbumResponse>
+
+    /**
+     * The full track objects for up to 50 ids. They carry `popularity`,
+     * which the album track list does not.
+     */
+    @GET("tracks")
+    suspend fun getTracks(
+        @Header("Authorization") authHeader: String,
+        @Query("ids") ids: String
+    ): Response<SeveralTracksResponse>
 
     @POST("me/player/queue")
     suspend fun addToQueue(

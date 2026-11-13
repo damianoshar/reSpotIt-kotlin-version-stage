@@ -37,6 +37,7 @@ import com.spotifydashboard.app.data.ViewMode
 import com.spotifydashboard.app.api.RemoteAlbumTrack
 import com.spotifydashboard.app.api.ResolvedAlbumDto
 import com.spotifydashboard.app.api.ResolvedTrackDto
+import com.spotifydashboard.app.api.TopTrackDto
 import com.spotifydashboard.app.api.ConcertScanDto
 import com.spotifydashboard.app.api.LLMChatRequest
 import com.spotifydashboard.app.api.LLMChatSummaryDto
@@ -235,6 +236,24 @@ class MainViewModel(
     /** True while the found tracks are being added to a playlist. */
     private val _scannedTracksAddBusy = MutableStateFlow(false)
     val scannedTracksAddBusy: StateFlow<Boolean> = _scannedTracksAddBusy.asStateFlow()
+
+    /**
+     * The most popular track of each album, resolved read-only.
+     *
+     * The album flows ("Add from site", "Scan page with AI") can offer to add
+     * these to a playlist the user chooses. Resolving them never writes to
+     * Spotify (UI policy P9).
+     */
+    private val _topTracks = MutableStateFlow<List<TopTrackDto>>(emptyList())
+    val topTracks: StateFlow<List<TopTrackDto>> = _topTracks.asStateFlow()
+
+    /** True while the most popular tracks are being resolved. */
+    private val _topTracksBusy = MutableStateFlow(false)
+    val topTracksBusy: StateFlow<Boolean> = _topTracksBusy.asStateFlow()
+
+    /** True while the most popular tracks are being written to a playlist. */
+    private val _topTracksAddBusy = MutableStateFlow(false)
+    val topTracksAddBusy: StateFlow<Boolean> = _topTracksAddBusy.asStateFlow()
 
     // --- AI URL scan / concerts (Phase 3c) ---
     private val _concerts = MutableStateFlow<List<ConcertEntity>>(emptyList())
@@ -4015,6 +4034,102 @@ fun setLocalPlaybackKeepConnected(enabled: Boolean) = localPlayback.setKeepConne
     /** Forget the tracks found by the last scan (the dialog was closed). */
     fun clearScannedTracks() {
         _scannedTracks.value = emptyList()
+    }
+
+    /**
+     * Resolve the most popular track of each of the given albums.
+     *
+     * Read-only: in remote mode the media server ranks the albums, in local
+     * mode the device reads Spotify with its own token. Nothing is written
+     * to Spotify here (UI policy P9 — always ask first).
+     */
+    fun resolveTopTracks(albumIds: List<String>) {
+        val ids = albumIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (ids.isEmpty()) {
+            _topTracks.value = emptyList()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _topTracksBusy.value = true
+            try {
+                _topTracks.value = if (remoteActive()) {
+                    dashboardRepository.topTracksFromAlbums(ids)
+                } else {
+                    playlistRepository.fetchAlbumTopTracks(ids)
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "resolveTopTracks failed", e)
+                _topTracks.value = emptyList()
+                _actionMessage.value = "Could not find the most popular tracks: ${e.message}"
+            } finally {
+                _topTracksBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * Add the most popular tracks to a playlist: either one the user already
+     * has, or a new one with the name they typed.
+     *
+     * This is the only write this option can do, and it happens only behind
+     * the "Add top tracks" button (UI policy P9). The tracks go in as track
+     * URIs, so no album is added to the Spotify library.
+     */
+    fun addTopTracksToPlaylist(uris: List<String>, playlistId: String?, newName: String?) {
+        val list = uris.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (list.isEmpty()) {
+            _actionMessage.value = "No tracks to add — find some albums first"
+            return
+        }
+        val existing = playlistId?.takeIf { it.isNotBlank() }
+        val name = newName?.trim().orEmpty()
+        if (existing == null && name.isEmpty()) {
+            _actionMessage.value = "Name the new playlist, or pick one of your playlists"
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _topTracksAddBusy.value = true
+            try {
+                var label = name
+                var tracksAdded: Int? = null
+                var created = false
+                if (existing != null) {
+                    label = _playlists.value.firstOrNull { it.id == existing }?.name ?: "playlist"
+                    tracksAdded = if (remoteActive()) {
+                        dashboardRepository.addTrackUrisToPlaylist(existing, list)
+                    } else {
+                        playlistRepository.addTrackUrisToPlaylist(existing, list)
+                    }
+                } else {
+                    created = true
+                    tracksAdded = if (remoteActive()) {
+                        dashboardRepository.createAndAddPlaylist(
+                            name = name,
+                            albumIds = emptySet(),
+                            uris = list,
+                        ).tracks_added
+                    } else {
+                        playlistRepository.createPlaylistWithUris(name, list).tracks.total
+                    }
+                }
+                _actionMessage.value = buildString {
+                    if (created) append("Created \"$label\"") else append("Added to \"$label\"")
+                    append(" with ${list.size} most popular track(s)")
+                    if (tracksAdded != null) append(" ($tracksAdded added)")
+                }
+                loadPlaylists()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "addTopTracksToPlaylist failed", e)
+                _actionMessage.value = "Could not add the most popular tracks: ${e.message}"
+            } finally {
+                _topTracksAddBusy.value = false
+            }
+        }
+    }
+
+    /** Forget the resolved most popular tracks (the dialog was closed). */
+    fun clearTopTracks() {
+        _topTracks.value = emptyList()
     }
 
     /** Fetches the server's Spotify login URL; the Activity opens it in a browser. */

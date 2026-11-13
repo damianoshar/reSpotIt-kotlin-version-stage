@@ -58,6 +58,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.spotifydashboard.app.api.SpotifyPlaylist
+import com.spotifydashboard.app.api.TopTrackDto
 import com.spotifydashboard.app.utils.LinkHistoryStore
 import com.spotifydashboard.app.utils.LinkTarget
 import org.json.JSONArray
@@ -83,6 +84,13 @@ fun AddFromSiteDialog(
     onAddToPlaylist: (albumIds: List<String>, playlistId: String?, newName: String?) -> Unit = { _, _, _ -> },
     playlists: List<SpotifyPlaylist> = emptyList(),
     playlistBusy: Boolean = false,
+    // "Also add the most popular track of each album": the ranking is
+    // resolved read-only, the write happens only behind the button.
+    topTracks: List<TopTrackDto> = emptyList(),
+    topTracksResolving: Boolean = false,
+    topTracksAddBusy: Boolean = false,
+    onResolveTopTracks: (albumIds: List<String>) -> Unit = {},
+    onAddTopTracksToPlaylist: (uris: List<String>, playlistId: String?, newName: String?) -> Unit = { _, _, _ -> },
     initialUrl: String? = null,
     // Snapshot the rendered page and hand (pageUrl, text) to the AI scanner.
     onScanConcerts: (String, String) -> Unit = { _, _ -> },
@@ -750,6 +758,16 @@ fun AddFromSiteDialog(
                                     "The ${selectedIds.size} selected album(s) are added with all their tracks.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = androidx.compose.ui.graphics.Color(0xFFB3B3B3)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            AlbumTopTracksSection(
+                                albumIds = selectedIds,
+                                topTracks = topTracks,
+                                resolving = topTracksResolving,
+                                busy = topTracksAddBusy,
+                                playlists = playlists,
+                                onResolve = onResolveTopTracks,
+                                onAdd = onAddTopTracksToPlaylist,
                             )
                         }
                     }

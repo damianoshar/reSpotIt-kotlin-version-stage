@@ -456,6 +456,36 @@ data class ResolveTracksResponse(
     val unresolved: List<Map<String, String>> = emptyList(),
 )
 
+// --- The most popular track of each album ---
+
+/**
+ * One album's most popular track. The URI is what goes into the playlist;
+ * the rest is only shown to the user.
+ */
+data class TopTrackDto(
+    val spotify_id: String = "",
+    val uri: String = "",
+    val name: String = "",
+    val artist_names: String = "",
+    val album_id: String = "",
+    val album_name: String = "",
+    val album_image_url: String = "",
+    val popularity: Int = 0,
+    val track_number: Int? = null,
+    val duration_ms: Long? = null,
+    val release_year: Int? = null
+)
+
+data class TopTracksBody(
+    @SerializedName("album_ids") val album_ids: List<String> = emptyList(),
+    @SerializedName("per_album") val per_album: Int = 1
+)
+
+data class TopTracksResponse(
+    val tracks: List<TopTrackDto> = emptyList(),
+    val skipped: List<Map<String, String>> = emptyList()
+)
+
 // --- Concerts (server-canonical — docs/STORAGE-POLICY.md) ---
 
 data class RemoteConcertItem(
@@ -911,6 +941,13 @@ interface DashboardApiService {
         @Header("Authorization") auth: String,
         @Body body: ResolveTracksBody
     ): Response<ResolveTracksResponse>
+
+    // The most popular track of each album (read-only).
+    @POST("api/v1/spotify/top-tracks-from-albums")
+    suspend fun topTracksFromAlbums(
+        @Header("Authorization") auth: String,
+        @Body body: TopTracksBody
+    ): Response<TopTracksResponse>
 
     // --- Local LLM (Open WebUI proxy) ---
 

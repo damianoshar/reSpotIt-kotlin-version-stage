@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.spotifydashboard.app.api.ResolvedAlbumDto
 import com.spotifydashboard.app.api.SpotifyPlaylist
+import com.spotifydashboard.app.api.TopTrackDto
 import com.spotifydashboard.app.utils.LinkHistoryStore
 import com.spotifydashboard.app.utils.LinkTarget
 
@@ -33,6 +34,13 @@ fun AiUrlScanDialog(
     playlists: List<SpotifyPlaylist> = emptyList(),
     playlistBusy: Boolean = false,
     onAddToPlaylist: (albumIds: List<String>, playlistId: String?, newName: String?) -> Unit = { _, _, _ -> },
+    // "Also add the most popular track of each album": the ranking is
+    // resolved read-only, the write happens only behind the button.
+    topTracks: List<TopTrackDto> = emptyList(),
+    topTracksResolving: Boolean = false,
+    topTracksAddBusy: Boolean = false,
+    onResolveTopTracks: (albumIds: List<String>) -> Unit = {},
+    onAddTopTracksToPlaylist: (uris: List<String>, playlistId: String?, newName: String?) -> Unit = { _, _, _ -> },
     /**
      * Add the found albums to the user's Spotify library and to the dashboard
      * index. Only runs when the user presses "Add to library": a scan never
@@ -215,6 +223,16 @@ fun AiUrlScanDialog(
                             Text("Add to playlist (${scannedIds.size})")
                         }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    AlbumTopTracksSection(
+                        albumIds = scannedIds,
+                        topTracks = topTracks,
+                        resolving = topTracksResolving,
+                        busy = topTracksAddBusy,
+                        playlists = playlists,
+                        onResolve = onResolveTopTracks,
+                        onAdd = onAddTopTracksToPlaylist,
+                    )
                 }
             }
         },

@@ -269,6 +269,22 @@ class DashboardRepository(private val context: Context) {
         authed(llmService()) { svc, header -> svc.resolveTracks(header, ResolveTracksBody(items = list)) }
     }
 
+    /**
+     * The most popular track of each album, ranked by the media server.
+     *
+     * Read-only: the server fetches the album track lists and ranks them; it
+     * never writes to Spotify (UI policy P9). The app adds the tracks to the
+     * playlist the user chose, and only after the user pressed the button.
+     */
+    suspend fun topTracksFromAlbums(albumIds: List<String>): List<TopTrackDto> = withContext(Dispatchers.IO) {
+        val ids = albumIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (ids.isEmpty()) return@withContext emptyList()
+        val res = authed(llmService()) { svc, header ->
+            svc.topTracksFromAlbums(header, TopTracksBody(album_ids = ids, per_album = 1))
+        }
+        res?.tracks ?: emptyList()
+    }
+
     suspend fun extractConcerts(url: String? = null, text: String? = null): List<ExtractedConcertDto> = withContext(Dispatchers.IO) {
         val body = ExtractBody(url = url?.takeIf { it.isNotBlank() }, text = text?.takeIf { it.isNotBlank() })
         val res = authed(llmService()) { svc, header -> svc.extractConcerts(header, body) }

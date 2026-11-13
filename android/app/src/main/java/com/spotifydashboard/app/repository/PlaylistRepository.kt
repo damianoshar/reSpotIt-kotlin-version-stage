@@ -19,6 +19,7 @@ import com.spotifydashboard.app.api.ChangePlaylistDetailsRequest
 import com.spotifydashboard.app.api.SpotifyApiClient
 import com.spotifydashboard.app.api.SpotifyApiService
 import com.spotifydashboard.app.api.RemoteAlbumTrack
+import com.spotifydashboard.app.api.TopTrackDto
 import com.spotifydashboard.app.api.TrackUri
 import com.spotifydashboard.app.api.RemoveTracksRequest
 import com.spotifydashboard.app.auth.SpotifyAuthManager
@@ -417,6 +418,91 @@ class PlaylistRepository(
             offset += 50
         }
         out
+    }
+
+    /**
+     * The most popular track of each album, read straight from Spotify with
+     * the device's own token (local mode).
+     *
+     * An album's track list holds simplified track objects, which carry no
+     * popularity, so the ranking needs `/tracks?ids=...` as well. An album
+     * that cannot be read is skipped; the others still get their track.
+     */
+    suspend fun fetchAlbumTopTracks(albumIds: List<String>): List<TopTrackDto> = withContext(Dispatchers.IO) {
+        val token = authManager.getValidAccessToken() ?: throw Exception("Authentication required")
+        val authHeader = "Bearer $token"
+        val albumApi: SpotifyApiService = SpotifyApiClient.service
+        val out = mutableListOf<TopTrackDto>()
+        for (albumId in albumIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()) {
+            try {
+                val album = albumApi.getAlbumDetails(authHeader, albumId).body()
+                val imageUrl = album?.images?.sortedByDescending { it.width }?.firstOrNull()?.url ?: ""
+                val releaseYear = album?.release_date?.split("-")?.firstOrNull()?.toIntOrNull()
+                val albumArtists = album?.artists?.joinToString(", ") { it.name }.orEmpty()
+
+                val items = mutableListOf<com.spotifydashboard.app.api.AlbumTrackItem>()
+                var offset = 0
+                while (true) {
+                    val resp = albumApi.getAlbumTracks(authHeader, albumId, 50, offset)
+                    if (!resp.isSuccessful) break
+                    val page = resp.body() ?: break
+                    items += page.items
+                    if (page.next == null || page.items.size < 50) break
+                    offset += 50
+                }
+                if (items.isEmpty()) continue
+
+                val popularity = fetchTrackPopularity(albumApi, authHeader, items.mapNotNull { it.id })
+                val rows = items.filter { !it.id.isNullOrBlank() }.map { track ->
+                    TopTrackDto(
+                        spotify_id = track.id.orEmpty(),
+                        uri = track.uri.ifBlank { "spotify:track:${track.id}" },
+                        name = track.name,
+                        artist_names = track.artists.joinToString(", ") { it.name }
+                            .ifBlank { albumArtists },
+                        album_id = albumId,
+                        album_name = album?.name ?: "",
+                        album_image_url = imageUrl,
+                        popularity = popularity[track.id] ?: 0,
+                        track_number = track.track_number,
+                        duration_ms = track.duration_ms,
+                        release_year = releaseYear,
+                    )
+                }
+                // Most popular first; a tie is broken with the lowest track
+                // number, so the pick is stable.
+                rows.sortedWith(
+                    compareByDescending<TopTrackDto> { it.popularity }
+                        .thenBy { it.track_number ?: 9999 }
+                        .thenBy { it.name.lowercase() }
+                ).firstOrNull()?.let { out.add(it) }
+            } catch (_: Exception) {
+                // Skip the album; the others still get their most popular track.
+            }
+        }
+        out
+    }
+
+    /** The Spotify popularity of a batch of tracks (max 50 ids per call). */
+    private suspend fun fetchTrackPopularity(
+        albumApi: SpotifyApiService,
+        authHeader: String,
+        ids: List<String>
+    ): Map<String, Int> {
+        val out = mutableMapOf<String, Int>()
+        for (chunk in ids.filter { it.isNotBlank() }.chunked(50)) {
+            if (chunk.isEmpty()) continue
+            try {
+                val resp = albumApi.getTracks(authHeader, chunk.joinToString(","))
+                if (!resp.isSuccessful) continue
+                for (track in resp.body()?.tracks.orEmpty()) {
+                    if (track?.id != null) out[track.id] = track.popularity
+                }
+            } catch (_: Exception) {
+                // A batch that cannot be read simply has no popularity.
+            }
+        }
+        return out
     }
 
     /**

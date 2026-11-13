@@ -232,6 +232,9 @@ private fun SpotifyDashboardContent(
     val scannedAlbums by viewModel.scannedAlbums.collectAsState()
     val scannedTracks by viewModel.scannedTracks.collectAsState()
     val trackPlaylistAddBusy by viewModel.scannedTracksAddBusy.collectAsState()
+    val topTracks by viewModel.topTracks.collectAsState()
+    val topTracksBusy by viewModel.topTracksBusy.collectAsState()
+    val topTracksAddBusy by viewModel.topTracksAddBusy.collectAsState()
     val spotifySearchPlaylist by viewModel.spotifySearchPlaylist.collectAsState()
     val artistDiscography by viewModel.artistDiscography.collectAsState()
     val catalogPlaylistBusy by viewModel.catalogPlaylistBusy.collectAsState()
@@ -1054,6 +1057,7 @@ private fun SpotifyDashboardContent(
             onDismiss = {
                 showAddFromSite = false
                 browserStartUrl = null
+                viewModel.clearTopTracks()
                 if (browserFromAlbumScan) {
                     browserFromAlbumScan = false
                     showAiUrlScan = true
@@ -1069,6 +1073,13 @@ private fun SpotifyDashboardContent(
             },
             playlists = playlists,
             playlistBusy = playlistAddBusy,
+            topTracks = topTracks,
+            topTracksResolving = topTracksBusy,
+            topTracksAddBusy = topTracksAddBusy,
+            onResolveTopTracks = { albumIds -> viewModel.resolveTopTracks(albumIds) },
+            onAddTopTracksToPlaylist = { uris, playlistId, newName ->
+                viewModel.addTopTracksToPlaylist(uris, playlistId, newName)
+            },
             initialUrl = browserStartUrl ?: sharedSiteUrl,
             onScanConcerts = { pageUrl, text ->
                 // The snapshot already holds the rendered page; close the browser
@@ -1150,12 +1161,20 @@ private fun SpotifyDashboardContent(
             onAddToPlaylist = { albumIds, playlistId, newName ->
                 viewModel.addFoundAlbumsToPlaylist(albumIds, playlistId, newName)
             },
+            topTracks = topTracks,
+            topTracksResolving = topTracksBusy,
+            topTracksAddBusy = topTracksAddBusy,
+            onResolveTopTracks = { albumIds -> viewModel.resolveTopTracks(albumIds) },
+            onAddTopTracksToPlaylist = { uris, playlistId, newName ->
+                viewModel.addTopTracksToPlaylist(uris, playlistId, newName)
+            },
             onAddToLibrary = { viewModel.saveScannedAlbumsToLibrary() },
             libraryBusy = viewModel.scannedAlbumsSaveBusy.collectAsState().value,
             onDismiss = {
                 showAiUrlScan = false
                 browserFromAlbumScan = false
                 viewModel.clearScannedAlbums()
+                viewModel.clearTopTracks()
             },
         )
     }
