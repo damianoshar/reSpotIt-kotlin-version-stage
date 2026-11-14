@@ -1059,7 +1059,9 @@ class DashboardRepository(private val context: Context) {
         playlistId: String, f: FilterState, limit: Int, offset: Int
     ): Pair<List<PlaylistAlbumEntity>, Int> = withContext(Dispatchers.IO) {
         val page = offset / limit + 1
-        val sort = if (f.sortField == "added_at") "artist" else f.sortField
+        // 'added_at' is the album's position in the playlist - the server sorts
+        // by it, so the field is passed through unchanged.
+        val sort = f.sortField
         val data = authed { svc, header ->
             svc.getPlaylistAlbums(
                 header, playlistId, f.search, f.genre, f.artist,
